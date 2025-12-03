@@ -90,31 +90,41 @@ def index():
         """, (session['resident_id'],))
         incoming_requests = cur.fetchall()
 
-    # 3. [대여자]
+    # 3. [대여자] 탭 데이터 조회
     my_rentals = []
-    # [수정됨]
     if session.get('status') == 'approved':
+        # [수정 1] Residents -> View_Manager_Residents 로 변경
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, r.delivery_status
-            FROM Rentals r JOIN Items i ON r.item_id = i.item_id JOIN Residents u ON i.owner_id = u.resident_id
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id  -- 여기를 수정
             WHERE r.borrower_id = %s ORDER BY r.rental_id DESC
         """, (session['resident_id'],))
         my_rentals = cur.fetchall()
 
-    # 4. [배송]
+    # 4. [배송] 탭 데이터 조회
     delivery_market = []
     my_deliveries = []
-    # [수정됨]
     if session.get('status') == 'approved':
+        # [수정 2] Residents -> View_Manager_Residents 로 변경 (u1, u2 둘 다)
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, u1.building, u1.unit, u2.building, u2.unit
-            FROM Rentals r JOIN Items i ON r.item_id = i.item_id JOIN Residents u1 ON i.owner_id = u1.resident_id JOIN Residents u2 ON r.borrower_id = u2.resident_id
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id      -- 여기를 수정
+            JOIN View_Manager_Residents u2 ON r.borrower_id = u2.resident_id   -- 여기를 수정
             WHERE r.delivery_option = 'delivery' AND r.status = 'approved' AND r.delivery_partner_id IS NULL
         """)
         delivery_market = cur.fetchall()
+        
+        # [수정 3] Residents -> View_Manager_Residents 로 변경 (u1, u2 둘 다)
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, u1.building, u1.unit, u2.building, u2.unit, r.delivery_status
-            FROM Rentals r JOIN Items i ON r.item_id = i.item_id JOIN Residents u1 ON i.owner_id = u1.resident_id JOIN Residents u2 ON r.borrower_id = u2.resident_id
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id      -- 여기를 수정
+            JOIN View_Manager_Residents u2 ON r.borrower_id = u2.resident_id   -- 여기를 수정
             WHERE r.delivery_partner_id = %s AND r.delivery_status != 'delivered'
         """, (session['resident_id'],))
         my_deliveries = cur.fetchall()
