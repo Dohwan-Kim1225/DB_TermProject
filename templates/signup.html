@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card p-4">
+            <h3 class="text-center mb-4">📝 주민 등록 (회원가입)</h3>
+            <form method="POST">
+                <div class="row mb-3">
+                    <div class="col">
+                        <label class="form-label">아이디</label>
+                        <input type="text" name="user_id" class="form-control" required>
+                    </div>
+                    <div class="col">
+                        <label class="form-label">비밀번호</label>
+                        <input type="password" name="password" class="form-control" required>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">이름</label>
+                    <input type="text" name="name" class="form-control" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">전화번호 (- 없이 입력)</label>
+                    <input type="text" name="phone" class="form-control" placeholder="01012345678" required>
+                </div>
+
+                <label class="form-label">거주지 정보</label>
+                <div class="input-group mb-4">
+                    <input type="text" name="building" class="form-control" placeholder="동 (예: 101)" required>
+                    <span class="input-group-text">동</span>
+                    <input type="text" name="unit" class="form-control" placeholder="호 (예: 1201)" required>
+                    <span class="input-group-text">호</span>
+                </div>
+
+                <button type="submit" class="btn btn-success w-100">가입신청</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}  

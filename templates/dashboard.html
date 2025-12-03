@@ -1,0 +1,346 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#home">🏠 물품 목록</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#owner">📦 내 물건 관리</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#borrower">🙋‍♂️ 빌린 내역</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#delivery">🚚 배송 알바</button>
+    </li>
+    {% if session['is_manager'] %}
+    <li class="nav-item">
+        <button class="nav-link text-danger fw-bold" data-bs-toggle="tab" data-bs-target="#admin">👮 관리자 페이지</button>
+    </li>
+    {% endif %}
+</ul>
+
+<div class="tab-content">
+    
+    <div class="tab-pane fade show active" id="home">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>대여 가능한 물품</h4>
+            
+            {% if session['status'] == 'approved' %}
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#registerModal">+ 물품 등록</button>
+            {% else %}
+                <span class="text-danger small">* 매니저 승인 후 등록 가능합니다. (현재 상태: {{ session['status'] }})</span>
+            {% endif %}
+        </div>
+
+        <div class="row">
+            {% for item in items %}
+            <div class="col-md-3 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <span class="badge bg-info text-dark mb-2">{{ item[2] }}</span>
+                        <h5 class="card-title">{{ item[1] }}</h5>
+                        <p class="card-text small text-muted">{{ item[5] }}</p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <span class="text-primary fw-bold">{{ item[3] }} P</span>
+                            <small>~ {{ item[4] }}</small>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-white border-top-0">
+                        <a href="/rent/{{ item[0] }}" class="btn btn-outline-primary w-100 btn-sm">대여 신청</a>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="col-12 text-center py-5 text-muted">등록된 물품이 없습니다.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="owner">
+        <h5>📥 들어온 대여 요청</h5>
+        <table class="table table-bordered">
+            <thead><tr><th>물품</th><th>신청자</th><th>기간</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody>
+                {% for req in incoming_requests %}
+                <tr>
+                    <td>{{ req[1] }}</td>
+                    <td>{{ req[2] }}</td>
+                    <td>{{ req[3] }} ~ {{ req[4] }}</td>
+                    <td><span class="badge bg-warning text-dark">{{ req[5] }}</span></td>
+                    <td>
+                        <a href="/approve_rental/{{ req[0] }}" class="btn btn-sm btn-success" onclick="return confirm('승인하시겠습니까? (상대방 포인트 차감)');">승인</a>
+                        <a href="/reject_rental/{{ req[0] }}" class="btn btn-sm btn-danger" onclick="return confirm('거절하시겠습니까?');">거절</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="text-center text-muted">들어온 요청이 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <h5 class="mt-4">📦 내가 등록한 물건</h5>
+        <ul class="list-group">
+            {% for my in my_items %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>
+                    <strong>{{ my[2] }}</strong> <span class="badge bg-light text-dark border">{{ my[3] }}</span>
+                </span>
+                <span class="badge bg-secondary">{{ my[7] }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="tab-pane fade" id="borrower">
+        <h5 class="mb-3">🙋‍♂️ 내가 빌린 물건 현황</h5>
+        <table class="table table-hover">
+            <thead class="table-light"><tr><th>물품명</th><th>소유자</th><th>기간</th><th>상태</th><th>배송상태</th></tr></thead>
+            <tbody>
+                {% for rental in my_rentals %}
+                <tr>
+                    <td><strong>{{ rental[1] }}</strong></td> <td>{{ rental[2] }}</td> <td>{{ rental[3] }} ~ {{ rental[4] }}</td>
+                    <td>
+                        {% if rental[5] == 'requested' %} <span class="badge bg-warning text-dark">승인 대기</span>
+                        {% elif rental[5] == 'approved' %} <span class="badge bg-primary">승인됨</span>
+                        {% elif rental[5] == 'rejected' %} <span class="badge bg-danger">거절됨</span>
+                        {% else %} <span class="badge bg-info">{{ rental[5] }}</span> {% endif %}
+                    </td>
+                    <td>{{ rental[6] }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="text-center text-muted">빌린 내역이 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="tab-pane fade" id="delivery">
+        <div class="card mb-4 border-success">
+            <div class="card-header bg-success text-white fw-bold">🛵 내 배송 현황</div>
+            <div class="card-body">
+                {% if my_deliveries %}
+                <table class="table align-middle">
+                    <thead><tr><th>물품</th><th>경로 (출발→도착)</th><th>수익</th><th>상태</th><th>액션</th></tr></thead>
+                    <tbody>
+                        {% for job in my_deliveries %}
+                        <tr>
+                            <td>{{ job[1] }}</td>
+                            <td>{{ job[3] }}동 {{ job[4] }}호 ➝ {{ job[5] }}동 {{ job[6] }}호</td>
+                            <td class="text-success fw-bold">+{{ job[2] }} P</td>
+                            <td><span class="badge bg-info">{{ job[7] }}</span></td>
+                            <td>
+                                {% if job[7] == 'accepted' %}
+                                    <a href="/pickup_delivery/{{ job[0] }}" class="btn btn-sm btn-warning">픽업</a>
+                                {% elif job[7] == 'picked_up' %}
+                                    <a href="/complete_delivery/{{ job[0] }}" class="btn btn-sm btn-primary">완료</a>
+                                {% else %} 완료됨 {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %} <p class="text-muted">진행 중인 배송이 없습니다.</p> {% endif %}
+            </div>
+        </div>
+
+        <h5 class="mb-3">🚀 배송 콜 대기 목록</h5>
+        {% if delivery_market %}
+        <div class="row">
+            {% for call in delivery_market %}
+            <div class="col-md-4 mb-3">
+                <div class="card h-100 border-primary">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <h5 class="card-title">{{ call[1] }}</h5>
+                            <span class="text-success fw-bold">{{ call[2] }} P</span>
+                        </div>
+                        <hr>
+                        <p class="card-text mb-1">🛫 <strong>출발:</strong> {{ call[3] }}동 {{ call[4] }}호</p>
+                        <p class="card-text">🛬 <strong>도착:</strong> {{ call[5] }}동 {{ call[6] }}호</p>
+                        <a href="/accept_delivery/{{ call[0] }}" class="btn btn-outline-success w-100 mt-2">수락하기</a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %} <div class="alert alert-secondary text-center">요청된 배송이 없습니다.</div> {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="admin">
+        
+        <div class="row mb-4">
+            <!-- A. 가입 승인 대기 (왼쪽) -->
+            <div class="col-md-6">
+                <div class="card h-100 border-primary">
+                    <div class="card-header bg-primary text-white fw-bold">
+                        📝 신규 가입 요청 (대기중)
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% for user in pending_residents %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ user[2] }}</strong> ({{ user[4] }}동 {{ user[5] }}호)<br>
+                                <span class="text-muted small">ID: {{ user[1] }} / 📞 {{ user[3] }}</span>
+                            </div>
+                            <div>
+                                <a href="/approve_resident/{{ user[0] }}" class="btn btn-sm btn-success">승인</a>
+                                <a href="/reject_resident/{{ user[0] }}" class="btn btn-sm btn-danger">거절</a>
+                            </div>
+                        </li>
+                        {% else %}
+                        <li class="list-group-item text-center text-muted py-3">대기 중인 요청이 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- B. 분쟁 관리 (오른쪽) -->
+            <div class="col-md-6">
+                <div class="card h-100 border-danger">
+                    <div class="card-header bg-danger text-white fw-bold">
+                        ⚖️ 분쟁 신고 관리
+                    </div>
+                    <div class="card-body">
+                        {% if open_disputes %}
+                        <table class="table table-sm">
+                            <thead><tr><th>신고내용</th><th>당사자</th><th>관리</th></tr></thead>
+                            <tbody>
+                                {% for d in open_disputes %}
+                                <tr>
+                                    <td>{{ d[2] }}</td>
+                                    <td>{{ d[3] }} vs {{ d[4] }}</td>
+                                    <td><button class="btn btn-sm btn-outline-danger">판결</button></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="text-muted text-center mt-3">현재 접수된 분쟁이 없습니다.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <!-- C. [신규] 회원 관리 이력 및 검색 -->
+        <div class="card border-secondary">
+            <div class="card-header bg-secondary text-white fw-bold d-flex justify-content-between align-items-center">
+                <span>👥 전체 주민 관리 (처리 이력)</span>
+            </div>
+            <div class="card-body">
+                <!-- 검색 및 필터 폼 -->
+                <form method="GET" action="/" class="row g-2 mb-3 align-items-center">
+                    <!-- 폼 제출 시 탭 유지를 위해 hidden input이나 JS가 필요할 수 있으나, 여기선 기본 동작 -->
+                    <input type="hidden" name="tab" value="admin"> 
+                    
+                    <div class="col-auto">
+                        <select name="f" class="form-select form-select-sm">
+                            <option value="all" {% if filter_status == 'all' %}selected{% endif %}>전체 보기</option>
+                            <option value="approved" {% if filter_status == 'approved' %}selected{% endif %}>✅ 승인됨</option>
+                            <option value="rejected" {% if filter_status == 'rejected' %}selected{% endif %}>🚫 거절됨</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <input type="text" name="q" class="form-control form-control-sm" placeholder="이름 또는 ID 검색" value="{{ search_query }}">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-sm btn-dark">검색</button>
+                        <a href="/" class="btn btn-sm btn-outline-secondary">초기화</a>
+                    </div>
+                </form>
+
+                <!-- 리스트 테이블 -->
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>이름 (호수)</th>
+                                <th>전화번호</th>
+                                <th>현재 상태</th>
+                                <th>상태 변경 (되돌리기)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in history_residents %}
+                            <tr>
+                                <td>{{ user[1] }}</td>
+                                <td>{{ user[2] }} <small class="text-muted">({{ user[4] }}동 {{ user[5] }}호)</small></td>
+                                <td>{{ user[3] }}</td>
+                                <td>
+                                    {% if user[6] == 'approved' %}
+                                        <span class="badge bg-success">승인됨</span>
+                                    {% else %}
+                                        <span class="badge bg-dark">거절(정지)됨</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user[6] == 'approved' %}
+                                        <!-- 승인된 사람은 -> 거절(정지) 시키기 -->
+                                        <a href="/reject_resident/{{ user[0] }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('이 주민의 활동을 정지(거절)시키겠습니까?');">정지하기</a>
+                                    {% else %}
+                                        <!-- 거절된 사람은 -> 승인 or 대기 복구 -->
+                                        <a href="/approve_resident/{{ user[0] }}" class="btn btn-sm btn-outline-success" onclick="return confirm('다시 승인하시겠습니까?');">재승인</a>
+                                        <a href="/restore_resident/{{ user[0] }}" class="btn btn-sm btn-outline-secondary">대기로 복구</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center py-3 text-muted">검색 결과가 없습니다.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+<div class="modal fade" id="registerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="/register_item" method="POST">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">📦 내 물건 등록하기</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label fw-bold">물품명</label>
+                    <input type="text" name="name" class="form-control mb-3" placeholder="예: 전동드릴" required>
+                    
+                    <label class="form-label fw-bold">카테고리</label>
+                    <select name="category" class="form-select mb-3">
+                        <option value="공구/수리">🔧 공구/수리</option>
+                        <option value="캠핑/레저">⛺ 캠핑/레저</option>
+                        <option value="육아/장난감">🧸 육아/장난감</option>
+                        <option value="주방/생활">🍳 주방/생활</option>
+                        <option value="전자기기">💻 전자기기</option>
+                        <option value="도서/취미">📚 도서/취미</option>
+                        <option value="기타">🎸 기타</option>
+                    </select>
+                    
+                    <label class="form-label fw-bold">상세 설명</label>
+                    <textarea name="description" class="form-control mb-3" rows="3" placeholder="상세 설명"></textarea>
+                    
+                    <label class="form-label fw-bold">1일 대여료 (포인트)</label>
+                    <div class="input-group mb-3">
+                        <input type="number" name="rent_fee" class="form-control" placeholder="0" min="0" required>
+                        <span class="input-group-text">P / 1일</span>
+                    </div>
+
+                    <label class="form-label fw-bold">공유 마감일</label>
+                    <input type="date" name="expiration_date" class="form-control" min="{{ date_today }}" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">등록하기</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

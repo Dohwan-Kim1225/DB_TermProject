@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-5">
+        <div class="card shadow-sm">
+            <div class="card-header bg-transparent border-0 mt-2">
+                <span class="badge bg-info text-dark">{{ item[3] }}</span>
+                <h3 class="mt-2">{{ item[2] }}</h3>
+            </div>
+            <div class="card-body">
+                <h5 class="text-primary fw-bold mb-3">💰 1일 대여료: {{ item[5] }} P</h5>
+                <p class="card-text text-muted" style="white-space: pre-line;">{{ item[4] }}</p>
+                <hr>
+                <ul class="list-unstyled">
+                    <li class="mb-2">📅 <strong>공유 마감일:</strong> {{ item[6] }}</li>
+                    <li class="mb-2">👤 <strong>소유자 ID:</strong> {{ item[1] }}</li>
+                    <li class="mb-2 text-success">💰 <strong>내 잔고:</strong> {{ my_points }} P</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow-sm border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">📝 대여 신청서 작성</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" id="rentForm">
+                    
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">대여 기간</label>
+                        <div class="input-group mb-2">
+                            <span class="input-group-text">시작일</span>
+                            <input type="date" name="start_date" id="startDate" class="form-control" 
+                                   min="{{ date_today }}" max="{{ item[6] }}" required onchange="calculateTotal()">
+                        </div>
+                        <div class="input-group">
+                            <span class="input-group-text">반납일</span>
+                            <input type="date" name="end_date" id="endDate" class="form-control" 
+                                   min="{{ date_today }}" max="{{ item[6] }}" required onchange="calculateTotal()">
+                        </div>
+                        <div class="form-text text-danger" id="dateAlert" style="display:none;">
+                            반납일은 시작일보다 빠를 수 없습니다.
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">수령 방식</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="delivery_option" id="pickup" value="pickup" checked onchange="calculateTotal()">
+                            <label class="btn btn-outline-secondary" for="pickup">🤝 직거래 (무료)</label>
+
+                            <input type="radio" class="btn-check" name="delivery_option" id="delivery" value="delivery" onchange="calculateTotal()">
+                            <label class="btn btn-outline-secondary" for="delivery">🚚 배송 대행 (+500 P)</label>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="alert alert-light border text-center">
+                        <p class="mb-1">총 대여 기간: <strong id="totalDays">0</strong>일</p>
+                        <h4>총 결제 포인트: <span id="totalPrice" class="text-primary">0</span> P</h4>
+                        <p id="balanceAlert" class="text-danger fw-bold mt-2" style="display:none;">❌ 잔액이 부족합니다!</p>
+                        <small class="text-muted">(대여 승인 시 포인트가 차감됩니다)</small>
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="btn btn-primary w-100 btn-lg" disabled>신청하기</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Python 변수를 JS 상수로 가져옴
+    const rentFee = Number("{{ item[5] }}"); 
+    const myPoints = Number("{{ my_points }}");
+
+    function calculateTotal() {
+        const startVal = document.getElementById('startDate').value;
+        const endVal = document.getElementById('endDate').value;
+        const dateAlert = document.getElementById('dateAlert');
+        const balanceAlert = document.getElementById('balanceAlert');
+        const submitBtn = document.getElementById('submitBtn');
+        const isDelivery = document.getElementById('delivery').checked;
+        
+        // 배송비 설정
+        const deliveryFee = isDelivery ? 500 : 0;
+
+        if (startVal && endVal) {
+            const start = new Date(startVal);
+            const end = new Date(endVal);
+            
+            const diffTime = end - start;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+            // 1. 날짜 유효성 체크
+            if (diffDays <= 0) {
+                dateAlert.style.display = 'block';
+                document.getElementById('totalDays').innerText = 0;
+                document.getElementById('totalPrice').innerText = 0;
+                submitBtn.disabled = true;
+                balanceAlert.style.display = 'none';
+                return;
+            } else {
+                dateAlert.style.display = 'none';
+                document.getElementById('totalDays').innerText = diffDays;
+                
+                // 2. 총액 계산
+                const total = (diffDays * rentFee) + deliveryFee;
+                document.getElementById('totalPrice').innerText = total.toLocaleString();
+
+                // 3. 잔액 비교 (핵심 기능)
+                if (total > myPoints) {
+                    balanceAlert.style.display = 'block'; // 경고 표시
+                    document.getElementById('totalPrice').classList.add('text-danger');
+                    submitBtn.disabled = true; // 버튼 비활성화
+                } else {
+                    balanceAlert.style.display = 'none';
+                    document.getElementById('totalPrice').classList.remove('text-danger');
+                    submitBtn.disabled = false; // 버튼 활성화
+                }
+            }
+        } else {
+            // 날짜 선택 안됨
+            submitBtn.disabled = true;
+        }
+    }
+</script>
+{% endblock %}

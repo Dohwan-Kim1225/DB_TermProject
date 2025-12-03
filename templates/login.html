@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+        <div class="card p-4">
+            <h3 class="text-center mb-4">🔑 로그인</h3>
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label">아이디</label>
+                    <input type="text" name="user_id" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">비밀번호</label>
+                    <input type="password" name="password" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100 mb-3">로그인</button>
+            </form>
+            <div class="text-center">
+                <a href="/signup" class="text-decoration-none">계정이 없으신가요? 회원가입</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
