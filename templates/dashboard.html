@@ -24,6 +24,41 @@
 <div class="tab-content">
     
     <div class="tab-pane fade show active" id="home">
+        <div class="card mb-4 bg-light border-0">
+            <div class="card-body p-3">
+                <form method="GET" action="/" class="row g-2 align-items-center">
+                    
+                    <div class="col-md-3">
+                        <select name="category" class="form-select">
+                            <option value="">📂 전체 카테고리</option>
+                            <option value="공구/수리" {% if request.args.get('category') == '공구/수리' %}selected{% endif %}>🔧 공구/수리</option>
+                            <option value="캠핑/레저" {% if request.args.get('category') == '캠핑/레저' %}selected{% endif %}>⛺ 캠핑/레저</option>
+                            <option value="육아/장난감" {% if request.args.get('category') == '육아/장난감' %}selected{% endif %}>🧸 육아/장난감</option>
+                            <option value="주방/생활" {% if request.args.get('category') == '주방/생활' %}selected{% endif %}>🍳 주방/생활</option>
+                            <option value="전자기기" {% if request.args.get('category') == '전자기기' %}selected{% endif %}>💻 전자기기</option>
+                            <option value="도서/취미" {% if request.args.get('category') == '도서/취미' %}selected{% endif %}>📚 도서/취미</option>
+                            <option value="기타" {% if request.args.get('category') == '기타' %}selected{% endif %}>🎸 기타</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <select name="sort" class="form-select">
+                            <option value="latest" {% if request.args.get('sort') == 'latest' %}selected{% endif %}>✨ 최신 등록순</option>
+                            <option value="exp_date" {% if request.args.get('sort') == 'exp_date' %}selected{% endif %}>⏰ 만료 임박순</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <input type="text" name="keyword" class="form-control" placeholder="물품명 또는 설명 검색" value="{{ request.args.get('keyword', '') }}">
+                    </div>
+
+                    <div class="col-md-2 d-grid gap-2 d-md-block">
+                        <button type="submit" class="btn btn-primary">검색</button>
+                        <a href="/" class="btn btn-outline-secondary">초기화</a>
+                    </div>
+                </form>
+            </div>
+        </div>
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h4>대여 가능한 물품</h4>
             

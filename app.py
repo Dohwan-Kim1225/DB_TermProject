@@ -40,21 +40,47 @@ def index():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # 1~4번 탭 (홈, 소유자, 대여자, 배송) 로직은 기존과 동일 (생략 없이 그대로 두세요)
-    # ---------------------------------------
-    # 1. [홈] 대여 가능한 물품 조회
-    cur.execute("""
+    # ======================================================
+    # [수정] 1. 검색/필터 기능이 적용된 물품 목록 조회
+    # ======================================================
+    
+    # URL 파라미터 받기 (예: /?keyword=드릴&category=공구/수리&sort=date)
+    keyword = request.args.get('keyword', '').strip()
+    category_filter = request.args.get('category', '')
+    sort_option = request.args.get('sort', 'latest')  # 기본값: 최신순
+
+    # 기본 쿼리: 대여 가능하고 만료되지 않은 물품
+    query = """
         SELECT item_id, name, category, rent_fee, expiration_date, description, owner_id 
         FROM Items 
         WHERE status = 'available' AND expiration_date >= CURRENT_DATE
-        ORDER BY item_id DESC
-    """)
+    """
+    params = []
+
+    # (1) 텍스트 검색 (상품명 또는 설명에 포함)
+    if keyword:
+        query += " AND (name ILIKE %s OR description ILIKE %s)"
+        params.extend([f'%{keyword}%', f'%{keyword}%'])
+    
+    # (2) 카테고리 필터
+    if category_filter:
+        query += " AND category = %s"
+        params.append(category_filter)
+
+    # (3) 정렬 (빠른 만료일순 vs 최신 등록순)
+    if sort_option == 'exp_date':
+        query += " ORDER BY expiration_date ASC, item_id DESC" # 만료일 임박한 순
+    else:
+        query += " ORDER BY item_id DESC" # 최신 등록순 (기본)
+
+    cur.execute(query, tuple(params))
     items = cur.fetchall()
 
     # 2. [소유자]
     my_items = []
     incoming_requests = []
-    if session.get('is_verified'): 
+    # [수정됨] is_verified 대신 status가 'approved'인지 확인
+    if session.get('status') == 'approved': 
         cur.execute("SELECT * FROM Items WHERE owner_id = %s", (session['resident_id'],))
         my_items = cur.fetchall()
         cur.execute("""
@@ -66,7 +92,8 @@ def index():
 
     # 3. [대여자]
     my_rentals = []
-    if session.get('is_verified'):
+    # [수정됨]
+    if session.get('status') == 'approved':
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, r.delivery_status
             FROM Rentals r JOIN Items i ON r.item_id = i.item_id JOIN Residents u ON i.owner_id = u.resident_id
@@ -77,7 +104,8 @@ def index():
     # 4. [배송]
     delivery_market = []
     my_deliveries = []
-    if session.get('is_verified'):
+    # [수정됨]
+    if session.get('status') == 'approved':
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, u1.building, u1.unit, u2.building, u2.unit
             FROM Rentals r JOIN Items i ON r.item_id = i.item_id JOIN Residents u1 ON i.owner_id = u1.resident_id JOIN Residents u2 ON r.borrower_id = u2.resident_id
