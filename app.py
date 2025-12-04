@@ -131,11 +131,14 @@ def index():
         # ==========================================================
         # [추가 2] 여기에 반납 도착 확인 쿼리를 넣으세요!
         # ==========================================================
+        # [소유자] 반납 도착 확인 대기
         cur.execute("""
-            SELECT r.rental_id, i.name, u.name 
+            SELECT r.rental_id, i.name, u.name, 
+                   p.name, p.phone_number -- [추가] 기사 정보
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
+            LEFT JOIN View_Manager_Residents p ON r.delivery_partner_id = p.resident_id
             WHERE i.owner_id = %s AND r.delivery_status = 'arrived'
         """, (session['resident_id'],))
         arrived_returns = cur.fetchall()
@@ -145,10 +148,13 @@ def index():
     if session.get('status') == 'approved':
         # [수정 1] Residents -> View_Manager_Residents 로 변경
         cur.execute("""
-            SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, r.delivery_status
+            SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
+                   r.delivery_status, 
+                   p.name, p.phone_number  -- [추가] 기사 이름, 기사 폰번호
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
-            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id  -- 여기를 수정
+            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id 
+            LEFT JOIN View_Manager_Residents p ON r.delivery_partner_id = p.resident_id -- 기사 조인
             WHERE r.borrower_id = %s ORDER BY r.rental_id DESC
         """, (session['resident_id'],))
         my_rentals = cur.fetchall()
@@ -182,13 +188,17 @@ def index():
 
 
         # 내 배송 현황도 동일하게 적용
+        # [배송] 내 배송 현황 (기사 입장에서 보는 뷰)
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, 
                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END,
                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END,
                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END,
                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END,
-                   r.delivery_status, r.status
+                   r.delivery_status, r.status,
+                   -- [추가] 출발지/목적지 전화번호 로직
+                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.phone_number ELSE u1.phone_number END as start_phone,
+                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.phone_number ELSE u2.phone_number END as end_phone
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id 
