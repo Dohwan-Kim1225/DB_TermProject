@@ -175,53 +175,79 @@
     </div>
 
     <div class="tab-pane fade" id="borrower">
-        <h5 class="mb-3">🙋‍♂️ 내가 빌린 물건 현황</h5>
-        <table class="table table-hover align-middle">
-            <thead class="table-light"><tr><th>물품명</th><th>소유자</th><th>기간</th><th>상태</th><th>배송/반납</th><th>기사정보</th></tr></thead>
-            <tbody>
-                {% for rental in my_rentals %}
-                <tr>
-                    <td><strong>{{ rental[1] }}</strong></td> 
-                    <td>{{ rental[2] }}</td> 
-                    <td>{{ rental[3] }} ~ {{ rental[4] }}</td>
-                    <td>
-                        {% if rental[5] == 'requested' %} <span class="badge bg-warning text-dark">승인 대기</span>
-                        {% elif rental[5] == 'approved' %} <span class="badge bg-primary">승인됨</span>
-                        {% elif rental[5] == 'rejected' %} <span class="badge bg-danger">거절됨</span>
-                        {% else %} <span class="badge bg-info">{{ rental[5] }}</span> {% endif %}
-                    </td>
-                    <td>
-                        {{ rental[6] }}
-                        {% if rental[5] in ['rented', 'overdue'] %}
-                            <br>
-                            {% if rental[6] in ['pending', 'completed'] or rental[6] is none %}
-                                <button class="btn btn-sm btn-outline-danger mt-1" onclick="openReturnModal('{{ rental[0] }}')">반납하기</button>
-                            {% else %}
-                                <span class="badge bg-secondary">운송중</span>
-                            {% endif %}
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if rental[7] %} 
-                            <button class="btn btn-sm btn-info text-white" 
-                                    onclick="showDriverInfo('{{ rental[7] }}', '{{ rental[8] }}', '{{ rental[6] }}')">
-                                보기
-                            </button>
-                        {% else %}
-                            <span class="text-muted small">-</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="6" class="text-center text-muted">빌린 내역이 없습니다.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+        
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">🙋‍♂️ 현재 진행 중인 대여</h5>
+            <button class="btn btn-dark btn-sm" data-bs-toggle="modal" data-bs-target="#borrowerHistoryModal">
+                📜 지난 대여 기록 보기
+            </button>
+        </div>
 
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>물품명</th>
+                        <th>소유자</th>
+                        <th>기간</th>
+                        <th>상태</th>
+                        <th>배송/반납</th>
+                        <th>기사정보</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rental in active_rentals %}
+                    <tr>
+                        <td><strong>{{ rental[1] }}</strong></td> 
+                        <td>{{ rental[2] }}</td> 
+                        <td>{{ rental[3] }} ~ {{ rental[4] }}</td>
+                        <td>
+                            {% if rental[5] == 'requested' %} <span class="badge bg-warning text-dark">승인 대기</span>
+                            {% elif rental[5] == 'approved' %} <span class="badge bg-primary">승인됨</span>
+                            {% elif rental[5] == 'disputed' %} <span class="badge bg-danger">분쟁 중</span>
+                            {% elif rental[5] == 'overdue' %} <span class="badge bg-danger">연체됨</span>
+                            {% else %} <span class="badge bg-success">대여 중</span> {% endif %}
+                        </td>
+                        <td>
+                            {{ rental[6] }}
+                            {% if rental[5] in ['rented', 'overdue'] %}
+                                <br>
+                                {% if rental[6] in ['pending', 'completed'] or rental[6] is none %}
+                                    <button class="btn btn-sm btn-outline-danger mt-1" onclick="openReturnModal('{{ rental[0] }}')">반납하기</button>
+                                {% else %}
+                                    <span class="badge bg-secondary">운송중</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if rental[7] %} 
+                                <button class="btn btn-sm btn-info text-white" 
+                                        onclick="showDriverInfo('{{ rental[7] }}', '{{ rental[8] }}', '{{ rental[6] }}')">
+                                    보기
+                                </button>
+                            {% else %}
+                                <span class="text-muted small">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">현재 빌리고 있는 물건이 없습니다.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
     <div class="tab-pane fade" id="delivery">
+        
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">🚚 배송 파트너 대시보드</h5>
+            <button class="btn btn-success text-white btn-sm" data-bs-toggle="modal" data-bs-target="#deliveryHistoryModal">
+                💰 배송 수익 내역 보기
+            </button>
+        </div>
+
         <div class="card mb-4 border-success">
-            <div class="card-header bg-success text-white fw-bold">🛵 내 배송 현황</div>
+            <div class="card-header bg-success text-white fw-bold">🛵 내 진행 중인 배송</div>
             <div class="card-body">
                 {% if my_deliveries %}
                 <table class="table align-middle">
@@ -643,4 +669,129 @@
         rows.forEach(row => tbody.appendChild(row));
     }
 </script>
+<div class="modal fade" id="borrowerHistoryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title">📜 지난 대여 기록 (완료/거절)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <input type="text" id="borrowerHistorySearch" class="form-control" placeholder="물품명 또는 소유자 이름 검색..." onkeyup="filterBorrowerHistory()">
+                </div>
+
+                <table class="table table-hover table-sm" id="borrowerHistoryTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>기간</th>
+                            <th>물품명</th>
+                            <th>소유자</th>
+                            <th>최종 상태</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in borrower_history %}
+                        <tr>
+                            <td class="small">{{ log[3] }}<br>~ {{ log[4] }}</td>
+                            <td><strong>{{ log[1] }}</strong></td>
+                            <td>{{ log[2] }}</td>
+                            <td>
+                                {% if log[5] == 'returned' %} <span class="badge bg-secondary">반납 완료</span>
+                                {% elif log[5] == 'rejected' %} <span class="badge bg-danger">거절됨</span>
+                                {% else %} {{ log[5] }} {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center py-4 text-muted">지난 기록이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 대여자 이력 검색 필터 (JS)
+    function filterBorrowerHistory() {
+        const input = document.getElementById('borrowerHistorySearch').value.toUpperCase();
+        const table = document.getElementById('borrowerHistoryTable');
+        const tr = table.getElementsByTagName('tr');
+
+        for (let i = 1; i < tr.length; i++) {
+            const tdName = tr[i].getElementsByTagName('td')[1]; // 물품명
+            const tdOwner = tr[i].getElementsByTagName('td')[2]; // 소유자
+            if (tdName && tdOwner) {
+                const txtValue = (tdName.textContent || tdName.innerText) + " " + (tdOwner.textContent || tdOwner.innerText);
+                if (txtValue.toUpperCase().indexOf(input) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+    }
+</script>
+<div class="modal fade" id="deliveryHistoryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">💰 배송 수익 내역 (정산 완료)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-light border text-center mb-3">
+                    <span class="text-muted">총 완료 건수:</span> <strong>{{ delivery_history|length }}건</strong>
+                    <span class="mx-2">|</span>
+                    <span class="text-muted">총 누적 수익:</span> 
+                    <strong class="text-success fs-5">
+                        {% set total = namespace(value=0) %}
+                        {% for log in delivery_history %}
+                            {% set total.value = total.value + log[2] %}
+                        {% endfor %}
+                        +{{ total.value }} P
+                    </strong>
+                </div>
+
+                <table class="table table-hover table-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>구분</th>
+                            <th>물품명</th>
+                            <th>배송 경로</th>
+                            <th class="text-end">수익</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in delivery_history %}
+                        <tr>
+                            <td>
+                                {% if log[7] == 'returned' %}
+                                    <span class="badge bg-secondary">반납 배송</span>
+                                {% else %}
+                                    <span class="badge bg-primary">대여 배송</span>
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ log[1] }}</strong></td>
+                            <td class="small">
+                                {{ log[3] }}동 {{ log[4] }}호 ➝ {{ log[5] }}동 {{ log[6] }}호
+                            </td>
+                            <td class="text-end fw-bold text-success">+{{ log[2] }} P</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center py-4 text-muted">완료된 배송 내역이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

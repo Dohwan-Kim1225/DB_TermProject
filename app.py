@@ -160,25 +160,48 @@ def index():
 
     # render_template에 owner_history=owner_history 추가 필수!
 
-    # 3. [대여자] 탭 데이터 조회
-    my_rentals = []
+    # 3. [대여자] 탭 데이터 조회 (Active vs History 분리)
+    active_rentals = []
+    borrower_history = []
+    
     if session.get('status') == 'approved':
-        # [수정 1] Residents -> View_Manager_Residents 로 변경
+        # (A) 진행 중인 대여 (Active)
+        # 조건: 요청중, 승인됨, 대여중, 연체됨, 분쟁중
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
                    r.delivery_status, 
-                   p.name, p.phone_number  -- [추가] 기사 이름, 기사 폰번호
+                   p.name, p.phone_number
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON i.owner_id = u.resident_id 
-            LEFT JOIN View_Manager_Residents p ON r.delivery_partner_id = p.resident_id -- 기사 조인
-            WHERE r.borrower_id = %s ORDER BY r.rental_id DESC
+            LEFT JOIN View_Manager_Residents p ON r.delivery_partner_id = p.resident_id
+            WHERE r.borrower_id = %s 
+              AND r.status IN ('requested', 'approved', 'rented', 'overdue', 'disputed')
+            ORDER BY r.rental_id DESC
         """, (session['resident_id'],))
-        my_rentals = cur.fetchall()
+        active_rentals = cur.fetchall()
+
+        # (B) 지난 대여 이력 (History)
+        # 조건: 거절됨(rejected), 반납완료(returned)
+        cur.execute("""
+            SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
+                   r.delivery_status
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id 
+            WHERE r.borrower_id = %s 
+              AND r.status IN ('rejected', 'returned')
+            ORDER BY r.rental_id DESC
+        """, (session['resident_id'],))
+        borrower_history = cur.fetchall()
+
+    # [중요] render_template에 변수명 변경/추가
+    # my_rentals -> active_rentals 로 변경하고, borrower_history 추가
 
 # 4. [배송] 탭 로직
     delivery_market = []
     my_deliveries = []
+    delivery_history = [] # [추가] 배송 이력 리스트 초기화
     if session.get('status') == 'approved':
         # [수정] WHERE 절 마지막에 AND r.borrower_id != %s 추가
         # 의미: 내가 빌린 건(Borrower가 나인 건)은 배송 시장 리스트에서 제외
@@ -223,6 +246,26 @@ def index():
             WHERE r.delivery_partner_id = %s AND r.delivery_status != 'completed'
         """, (session['resident_id'],))
         my_deliveries = cur.fetchall()
+
+        # (C) [신규] 배송 완료 이력 (delivery_history)
+        # 조건: 내가 파트너이고, 배송 상태가 'completed' 인 것
+        # 경로 로직: 반납 완료된 건(returned)은 [대여자->소유자], 대여 중인 건(rented)은 [소유자->대여자]
+        cur.execute("""
+            SELECT r.rental_id, i.name, r.delivery_fee, 
+                   CASE WHEN r.status = 'returned' THEN u2.building ELSE u1.building END as start_b,
+                   CASE WHEN r.status = 'returned' THEN u2.unit ELSE u1.unit END as start_u,
+                   CASE WHEN r.status = 'returned' THEN u1.building ELSE u2.building END as end_b,
+                   CASE WHEN r.status = 'returned' THEN u1.unit ELSE u2.unit END as end_u,
+                   r.status
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id 
+            JOIN View_Manager_Residents u2 ON r.borrower_id = u2.resident_id
+            WHERE r.delivery_partner_id = %s 
+              AND r.delivery_status = 'completed'
+            ORDER BY r.rental_id DESC
+        """, (session['resident_id'],))
+        delivery_history = cur.fetchall()
 
     # ---------------------------------------
     # 5. [매니저] 승인 대기 & 분쟁 & [신규] 처리 이력 검색
@@ -286,9 +329,11 @@ def index():
                            incoming_requests=incoming_requests,
                            arrived_returns=arrived_returns,
                            owner_history=owner_history,  # <--- [★중요★] 이 줄이 꼭 있어야 이력이 뜹니다!
-                           my_rentals=my_rentals,
+                           active_rentals=active_rentals,    # [변경] my_rentals 대신 사용
+                           borrower_history=borrower_history, # [추가]
                            delivery_market=delivery_market,
                            my_deliveries=my_deliveries,
+                           delivery_history=delivery_history, # [추가]
                            pending_residents=pending_residents,
                            open_disputes=open_disputes,
                            history_residents=history_residents,
