@@ -1,16 +1,18 @@
 -- ========================================================
--- [Project] 아파트 물품 공유 라이브러리 DB 구축 (RBAC Integrated)
+-- [Project] 아파트 물품 공유 라이브러리 DB 구축 (Final Fixed)
 -- ========================================================
 
 -- 1. [초기화] 기존 세션 종료 및 DB/Role 전체 삭제 (Reset)
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'DB_Term_Project';
 
 DROP DATABASE IF EXISTS "DB_Term_Project";
+
 -- 기존 역할 삭제
 DROP ROLE IF EXISTS db_superuser;
 DROP ROLE IF EXISTS db_manager;
 DROP ROLE IF EXISTS db_resident;
--- 세부 역할 삭제
+
+-- 세부 역할(추상 역할) 삭제
 DROP ROLE IF EXISTS db_owner;
 DROP ROLE IF EXISTS db_borrower;
 DROP ROLE IF EXISTS db_delivery_partner;
@@ -133,9 +135,13 @@ GRANT SELECT, UPDATE ON Rentals TO db_delivery_partner;
 GRANT SELECT ON Items TO db_delivery_partner;
 GRANT UPDATE (points) ON Residents TO db_delivery_partner; -- 배송비 수취
 
--- 🌍 4. 공통 권한 (본인 확인용)
+-- 🌍 4. 공통 권한 (중요!)
+-- 본인 확인용 Residents 조회
 GRANT SELECT ON Residents TO db_owner, db_borrower, db_delivery_partner;
+-- 시퀀스 사용 (INSERT 시 필요)
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO db_owner, db_borrower, db_delivery_partner;
+-- [수정됨] 뷰 조회 권한 추가 (InsufficientPrivilege 오류 해결)
+GRANT SELECT ON View_Manager_Residents TO db_owner, db_borrower, db_delivery_partner;
 
 -- [C] 역할 상속 (Role Inheritance)
 -- db_resident 계정은 위 3가지 역할을 모두 수행할 수 있습니다.
