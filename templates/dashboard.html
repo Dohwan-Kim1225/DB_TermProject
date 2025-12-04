@@ -90,6 +90,7 @@
     </div>
 
     <div class="tab-pane fade" id="owner">
+        
         <h5>📥 들어온 대여 요청</h5>
         <table class="table table-bordered">
             <thead><tr><th>물품</th><th>신청자</th><th>기간</th><th>상태</th><th>관리</th></tr></thead>
@@ -101,7 +102,7 @@
                     <td>{{ req[3] }} ~ {{ req[4] }}</td>
                     <td><span class="badge bg-warning text-dark">{{ req[5] }}</span></td>
                     <td>
-                        <a href="/approve_rental/{{ req[0] }}" class="btn btn-sm btn-success" onclick="return confirm('승인하시겠습니까? (상대방 포인트 차감)');">승인</a>
+                        <a href="/approve_rental/{{ req[0] }}" class="btn btn-sm btn-success" onclick="return confirm('승인하시겠습니까?');">승인</a>
                         <a href="/reject_rental/{{ req[0] }}" class="btn btn-sm btn-danger" onclick="return confirm('거절하시겠습니까?');">거절</a>
                     </td>
                 </tr>
@@ -111,43 +112,66 @@
             </tbody>
         </table>
 
-        <h5 class="mt-4">↩️ 반납 확인 대기 (도착한 물품)</h5>
+        <h5 class="mt-4">↩️ 반납 확인 및 검수 (도착한 물품)</h5>
         <table class="table table-bordered align-middle">
-            <thead><tr><th>물품</th><th>빌린사람</th><th>배송상태</th><th>관리(확인)</th></tr></thead>
+            <thead class="table-light"><tr><th>물품</th><th>빌린사람</th><th>배송상태</th><th>검수 및 확정</th></tr></thead>
             <tbody>
                 {% for ret in arrived_returns %}
                 <tr>
                     <td>{{ ret[1] }}</td>
                     <td>{{ ret[2] }}</td>
-                    <td><span class="badge bg-primary">도착함 (Arrived)</span></td>
                     <td>
-                        <a href="/confirm_return/{{ ret[0] }}" class="btn btn-sm btn-success" onclick="return confirm('물품 상태를 확인하셨습니까? (반납 확정)');">반납 확정</a>
-                        
+                        <span class="badge bg-primary">도착함 (Arrived)</span>
                         {% if ret[3] %}
-                            <button class="btn btn-sm btn-info text-white" 
-                                    onclick="showDriverInfo('{{ ret[3] }}', '{{ ret[4] }}', '도착함(Arrived)')">
-                                🚚 기사정보
-                            </button>
+                        <br><small class="text-muted cursor-pointer" onclick="showDriverInfo('{{ ret[3] }}', '{{ ret[4] }}', '도착')">🚚 {{ ret[3] }}</small>
                         {% endif %}
+                    </td>
+                    <td>
+                        <a href="/confirm_return/{{ ret[0] }}" class="btn btn-sm btn-success w-100 mb-1" onclick="return confirm('물품에 이상이 없습니까? (반납 확정)');">✅ 반납 확정 (이상없음)</a>
+                        
+                        <button class="btn btn-sm btn-outline-danger w-100" onclick="openDisputeModal('{{ ret[0] }}', '{{ ret[1] }}')">
+                            🚨 파손/분쟁 신고
+                        </button>
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="4" class="text-center text-muted">확인 대기 중인 반납 건이 없습니다.</td></tr>
+                <tr><td colspan="4" class="text-center text-muted py-3">확인 대기 중인 반납 건이 없습니다.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        <h5 class="mt-4">📦 내가 등록한 물건</h5>
-        <ul class="list-group">
-            {% for my in my_items %}
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                <span>
-                    <strong>{{ my[2] }}</strong> <span class="badge bg-light text-dark border">{{ my[3] }}</span>
-                </span>
-                <span class="badge bg-secondary">{{ my[7] }}</span>
-            </li>
-            {% endfor %}
-        </ul>
+        <div class="row mt-5">
+            <div class="col-md-6">
+                <h5>📦 내가 등록한 물건 현황</h5>
+                <ul class="list-group">
+                    {% for my in my_items %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>
+                            <strong>{{ my[2] }}</strong> 
+                            {% if my[7] == 'disputed' %} <span class="badge bg-danger">잠김(분쟁)</span>
+                            {% elif my[7] == 'rented' %} <span class="badge bg-success">대여중</span>
+                            {% else %} <span class="badge bg-secondary">대여가능</span> {% endif %}
+                        </span>
+                        <span class="small text-muted">{{ my[3] }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <div class="card bg-light border-0 h-100">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center">
+                        <h5 class="card-title text-muted mb-3">💰 정산 및 대여 이력</h5>
+                        <p class="card-text text-center small text-muted">
+                            지난 대여 기록과 수익 내역을 확인하세요.<br>
+                            완료된 건과 분쟁 처리된 건을 조회할 수 있습니다.
+                        </p>
+                        <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#historyModal">
+                            📜 대여 이력 조회하기
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="tab-pane fade" id="borrower">
@@ -474,6 +498,149 @@
         document.getElementById('returnForm').action = "/request_return/" + rentalId;
         var myModal = new bootstrap.Modal(document.getElementById('returnModal'));
         myModal.show();
+    }
+</script>
+<div class="modal fade" id="disputeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="disputeForm" method="POST">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">🚨 분쟁(파손) 신고</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="fw-bold text-danger">주의: 신고 시 해당 물품은 '잠금' 처리되어 대여가 중단됩니다.</p>
+                    <p>물품명: <strong id="disputeItemName"></strong></p>
+                    
+                    <label class="form-label">신고 사유 및 상세 내용</label>
+                    <textarea name="reason" class="form-control" rows="4" placeholder="예: 반납된 의자의 다리가 부러져 있습니다. 사진 첨부 등..." required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-danger">신고 접수</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">📜 내 물건 대여 이력</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-8">
+                        <input type="text" id="historySearch" class="form-control" placeholder="물품명 또는 빌린 사람 이름 검색..." onkeyup="filterHistory()">
+                    </div>
+                    <div class="col-md-4">
+                        <select id="historySort" class="form-select" onchange="sortHistory()">
+                            <option value="latest">▼ 최신순 (기본)</option>
+                            <option value="oldest">▲ 오래된순</option>
+                            <option value="income">💰 수익 높은순</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm" id="historyTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>날짜</th>
+                                <th>물품명</th>
+                                <th>빌린 사람</th>
+                                <th>상태</th>
+                                <th class="text-end">수익</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in owner_history %}
+                            <tr>
+                                <td class="small">{{ log[3] }}<br>~ {{ log[4] }}</td>
+                                <td><strong>{{ log[1] }}</strong></td>
+                                <td>{{ log[2] }}</td>
+                                <td>
+                                    {% if log[5] == 'completed' or log[5] == 'returned' %}
+                                        <span class="badge bg-success">완료</span>
+                                    {% elif log[5] == 'disputed' %}
+                                        <span class="badge bg-danger">분쟁</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ log[5] }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end fw-bold text-primary" data-income="{{ log[6] }}">
+                                    +{{ log[6] }} P
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center py-4 text-muted">아직 대여 이력이 없습니다.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 분쟁 모달 열기 함수
+    function openDisputeModal(rentalId, itemName) {
+        document.getElementById('disputeForm').action = "/report_dispute/" + rentalId;
+        document.getElementById('disputeItemName').innerText = itemName;
+        new bootstrap.Modal(document.getElementById('disputeModal')).show();
+    }
+
+    // 이력 검색 필터링 (JS)
+    function filterHistory() {
+        const input = document.getElementById('historySearch').value.toUpperCase();
+        const table = document.getElementById('historyTable');
+        const tr = table.getElementsByTagName('tr');
+
+        for (let i = 1; i < tr.length; i++) { // 헤더 제외
+            const tdName = tr[i].getElementsByTagName('td')[1]; // 물품명
+            const tdUser = tr[i].getElementsByTagName('td')[2]; // 빌린사람
+            if (tdName && tdUser) {
+                const txtValue = (tdName.textContent || tdName.innerText) + " " + (tdUser.textContent || tdUser.innerText);
+                if (txtValue.toUpperCase().indexOf(input) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+    }
+
+    // 이력 정렬 (JS)
+    function sortHistory() {
+        const table = document.getElementById("historyTable");
+        const tbody = table.querySelector("tbody");
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        const option = document.getElementById("historySort").value;
+
+        if (rows.length <= 1) return; // 데이터 없으면 패스
+
+        rows.sort((a, b) => {
+            // 날짜 비교 (1번째 컬럼)
+            const dateA = a.cells[0].innerText.split('~')[0].trim();
+            const dateB = b.cells[0].innerText.split('~')[0].trim();
+            
+            // 수익 비교 (마지막 컬럼 data-income 속성 활용)
+            const incomeA = parseInt(a.cells[4].getAttribute('data-income') || 0);
+            const incomeB = parseInt(b.cells[4].getAttribute('data-income') || 0);
+
+            if (option === 'latest') return dateB.localeCompare(dateA); // 내림차순
+            if (option === 'oldest') return dateA.localeCompare(dateB); // 오름차순
+            if (option === 'income') return incomeB - incomeA; // 수익 높은순
+        });
+
+        rows.forEach(row => tbody.appendChild(row));
     }
 </script>
 {% endblock %}

@@ -115,6 +115,7 @@ def index():
     my_items = []
     incoming_requests = []
     arrived_returns = []  # [추가 1] 변수 초기화
+    owner_history = []
 
     # [수정됨] is_verified 대신 status가 'approved'인지 확인
     if session.get('status') == 'approved': 
@@ -142,6 +143,22 @@ def index():
             WHERE i.owner_id = %s AND r.delivery_status = 'arrived'
         """, (session['resident_id'],))
         arrived_returns = cur.fetchall()
+
+        # [수정] 내 물건의 지난 대여 이력 조회
+        # 조건: 상태가 'returned'(반납확정) 또는 'disputed'(분쟁중) 인 것만 조회
+        cur.execute("""
+            SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
+                   (r.end_date - r.start_date + 1) * i.rent_fee as total_income
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
+            WHERE i.owner_id = %s 
+              AND r.status IN ('returned', 'disputed')  -- ['completed' 삭제함]
+            ORDER BY r.rental_id DESC
+        """, (session['resident_id'],))
+        owner_history = cur.fetchall()
+
+    # render_template에 owner_history=owner_history 추가 필수!
 
     # 3. [대여자] 탭 데이터 조회
     my_rentals = []
@@ -267,7 +284,8 @@ def index():
                            items=items,
                            my_items=my_items,
                            incoming_requests=incoming_requests,
-                           arrived_returns=arrived_returns,  # [추가 3] 여기 추가 필수!
+                           arrived_returns=arrived_returns,
+                           owner_history=owner_history,  # <--- [★중요★] 이 줄이 꼭 있어야 이력이 뜹니다!
                            my_rentals=my_rentals,
                            delivery_market=delivery_market,
                            my_deliveries=my_deliveries,
@@ -522,6 +540,8 @@ def reject_rental(rental_id):
     flash("요청을 거절했습니다.", "warning")
     return redirect(url_for('index'))
 
+
+
 # ========================================== 
 # 5. 배송 및 관리자 기능
 # ==========================================
@@ -747,41 +767,132 @@ def request_return(rental_id):
 # ==========================================
 # 소유자 반납확인
 # ==========================================
+# app.py
+
 @app.route('/confirm_return/<int:rental_id>')
 def confirm_return(rental_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 정보 조회
+        # 1. 필요한 모든 정보 조회 (날짜, 요금, 당사자들)
         cur.execute("""
-            SELECT r.delivery_fee, r.delivery_partner_id, r.item_id, i.owner_id 
-            FROM Rentals r JOIN Items i ON r.item_id = i.item_id 
+            SELECT r.delivery_fee, r.delivery_partner_id, r.item_id, i.owner_id,
+                   r.start_date, r.end_date, r.borrower_id, i.rent_fee
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
             WHERE r.rental_id = %s
         """, (rental_id,))
         data = cur.fetchone()
         
-        fee, partner_id, item_id, owner_id = data
+        if not data: return "데이터 없음"
+        
+        # 변수 할당
+        del_fee, partner_id, item_id, owner_id, start_date, original_end_date, borrower_id, rent_fee = data
 
         # 권한 체크
         if session['resident_id'] != owner_id:
-            return "권한 없음"
+            flash("권한이 없습니다.", "danger")
+            return redirect(url_for('index'))
 
-        # 1. 배송 기사에게 배송비 지급 (반납 배송비 정산)
-        if fee > 0 and partner_id:
-            # 소유자가 임시 보관 중이던 포인트를 기사에게 이체
-            cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (fee, owner_id))
-            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (fee, partner_id))
+        # ---------------------------------------------------------
+        # [신규 기능] 조기 반납 시 차액 환불 & 날짜 보정 로직
+        # ---------------------------------------------------------
+        today = date.today()
+        
+        # 남은 기간 계산 (예: 5일 반납인데 3일에 옴 -> 2일치 환불)
+        # 단, 시작일보다 이전(미래 예약 취소 등)인 경우는 별도 처리가 필요하지만 
+        # 여기선 '대여 중'인 상태이므로 start_date <= today 라고 가정함.
+        remaining_days = (original_end_date - today).days
+        
+        refund_msg = ""
 
-        # 2. 상태 업데이트 (최종 완료)
+        # 남은 날짜가 하루 이상이면 환불 진행
+        if remaining_days > 0:
+            refund_amount = remaining_days * rent_fee
+            
+            # (1) 환불 트랜잭션 (소유자 -> 대여자)
+            if refund_amount > 0:
+                cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (refund_amount, owner_id))
+                cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (refund_amount, borrower_id))
+            
+            # (2) 종료일 업데이트 (오늘로 수정)
+            cur.execute("UPDATE Rentals SET end_date = %s WHERE rental_id = %s", (today, rental_id))
+            
+            refund_msg = f" (⚡ 조기 반납으로 {remaining_days}일치 {refund_amount}P가 환불되었습니다!)"
+
+        # ---------------------------------------------------------
+        # [기존 기능] 배송비 정산 (소유자 -> 배송기사)
+        # ---------------------------------------------------------
+        if del_fee > 0 and partner_id:
+            cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (del_fee, owner_id))
+            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (del_fee, partner_id))
+
+        # 3. 상태 업데이트 (최종 완료)
         cur.execute("UPDATE Rentals SET status = 'returned', delivery_status = 'completed' WHERE rental_id = %s", (rental_id,))
         
-        # 3. 물품 상태 복구 (다시 대여 가능하도록)
+        # 4. 물품 상태 복구
         cur.execute("UPDATE Items SET status = 'available' WHERE item_id = %s", (item_id,))
         
         conn.commit()
-        # [수정] 소유자(나)의 포인트가 차감됐을 수 있으므로 동기화
+        
+        # 세션 동기화 (내 포인트가 빠져나갔을 수 있으므로)
         refresh_user_session(session['resident_id'])
-        flash("✅ 반납 확인 완료! 물품이 다시 대여 가능 상태가 되었습니다.", "success")
+        
+        flash(f"✅ 반납 확인 완료!{refund_msg}", "success")
+        
+    except Exception as e:
+        conn.rollback()
+        print("에러:", e)
+        flash(f"오류 발생: {e}", "danger")
+    finally:
+        cur.close()
+        conn.close()
+        
+    return redirect(url_for('index'))
+
+# ==========================================
+# 분쟁신고
+# ==========================================
+@app.route('/report_dispute/<int:rental_id>', methods=['POST'])
+def report_dispute(rental_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
+    reason = request.form['reason'] # 모달에서 입력한 사유
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 1. 정보 조회
+        cur.execute("""
+            SELECT r.item_id, i.owner_id 
+            FROM Rentals r JOIN Items i ON r.item_id = i.item_id 
+            WHERE r.rental_id = %s
+        """, (rental_id,))
+        result = cur.fetchone()
+        
+        if not result: return "잘못된 요청"
+        item_id, owner_id = result
+        
+        # 권한 체크
+        if owner_id != session['resident_id']:
+            flash("권한이 없습니다.", "danger")
+            return redirect(url_for('index'))
+
+        # 2. 상태 변경 (Lock)
+        # Rentals -> disputed, Items -> disputed
+        cur.execute("UPDATE Rentals SET status = 'disputed' WHERE rental_id = %s", (rental_id,))
+        cur.execute("UPDATE Items SET status = 'disputed' WHERE item_id = %s", (item_id,))
+        
+        # 3. 분쟁 테이블에 기록 (Disputes)
+        cur.execute("""
+            INSERT INTO Disputes (rental_id, reason, status)
+            VALUES (%s, %s, 'open')
+        """, (rental_id, reason))
+        
+        conn.commit()
+        flash("🚨 분쟁 신고가 접수되었습니다. 관리자 판결 전까지 물품이 잠금 처리됩니다.", "warning")
         
     except Exception as e:
         conn.rollback()
@@ -789,6 +900,7 @@ def confirm_return(rental_id):
     finally:
         cur.close()
         conn.close()
+        
     return redirect(url_for('index'))
 # ==========================================
 # [매니저 액션] 승인 / 거절 / 복구(대기상태로)
@@ -829,5 +941,7 @@ def restore_resident(id):
     conn.close()
     flash("♻️ 대기 상태로 되돌렸습니다.", "info")
     return redirect(url_for('index'))
+
+
 if __name__ == '__main__':
     app.run(debug=True)
