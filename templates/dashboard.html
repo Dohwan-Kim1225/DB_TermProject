@@ -114,7 +114,24 @@
                 {% endfor %}
             </tbody>
         </table>
-        
+        <h5 class="mt-4">↩️ 반납 확인 대기 (도착한 물품)</h5>
+        <table class="table table-bordered">
+            <thead><tr><th>물품</th><th>빌린사람</th><th>배송상태</th><th>확인</th></tr></thead>
+            <tbody>
+                {% for ret in arrived_returns %}
+                <tr>
+                    <td>{{ ret[1] }}</td>
+                    <td>{{ ret[2] }}</td>
+                    <td><span class="badge bg-primary">도착함 (Arrived)</span></td>
+                    <td>
+                        <a href="/confirm_return/{{ ret[0] }}" class="btn btn-sm btn-success" onclick="return confirm('물품 상태를 확인하셨습니까? (반납 확정)');">반납 확정</a>
+                        </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-center text-muted">확인 대기 중인 반납 건이 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
         <h5 class="mt-4">📦 내가 등록한 물건</h5>
         <ul class="list-group">
             {% for my in my_items %}
@@ -143,6 +160,17 @@
                         {% else %} <span class="badge bg-info">{{ rental[5] }}</span> {% endif %}
                     </td>
                     <td>{{ rental[6] }}</td>
+                    <td>
+                        {% if rental[5] in ['rented', 'overdue'] %}
+                            {% if rental[6] in ['pending', 'completed'] or rental[6] is none %}
+                                <button class="btn btn-sm btn-outline-danger" onclick="openReturnModal('{{ rental[0] }}')">반납하기</button>
+                            {% else %}
+                                <span class="badge bg-secondary">반납 운송중 ({{ rental[6] }})</span>
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
                 </tr>
                 {% else %}
                 <tr><td colspan="5" class="text-center text-muted">빌린 내역이 없습니다.</td></tr>
@@ -378,4 +406,47 @@
         </form>
     </div>
 </div>
+<div class="modal fade" id="returnModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="returnForm" method="POST">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">↩️ 물품 반납하기</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>반납 방식을 선택해주세요.</p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">운송 방식</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="delivery_option" id="return_pickup" value="pickup" checked>
+                            <label class="btn btn-outline-secondary" for="return_pickup">🤝 직접 반납 (무료)</label>
+
+                            <input type="radio" class="btn-check" name="delivery_option" id="return_delivery" value="delivery">
+                            <label class="btn btn-outline-secondary" for="return_delivery">🚚 배송 반납 (+500 P)</label>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info small">
+                        배송 반납 선택 시, 배송 기사가 매칭될 때까지 기다려야 합니다.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">반납 신청</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openReturnModal(rentalId) {
+        // 폼의 action 속성을 동적으로 변경하여 해당 rental_id로 POST 요청을 보냄
+        document.getElementById('returnForm').action = "/request_return/" + rentalId;
+        var myModal = new bootstrap.Modal(document.getElementById('returnModal'));
+        myModal.show();
+    }
+</script>
 {% endblock %}
