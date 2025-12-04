@@ -31,16 +31,19 @@
                     
                     <div class="mb-4">
                         <label class="form-label fw-bold">대여 기간</label>
+                        
                         <div class="input-group mb-2">
-                            <span class="input-group-text">시작일</span>
-                            <input type="date" name="start_date" id="startDate" class="form-control" 
-                                   min="{{ date_today }}" max="{{ item[6] }}" required onchange="calculateTotal()">
+                            <span class="input-group-text bg-light">시작일 (즉시 대여)</span>
+                            <input type="date" name="start_date" id="startDate" class="form-control bg-white" 
+                                value="{{ date_today }}" readonly>
                         </div>
+
                         <div class="input-group">
                             <span class="input-group-text">반납일</span>
                             <input type="date" name="end_date" id="endDate" class="form-control" 
-                                   min="{{ date_today }}" max="{{ item[6] }}" required onchange="calculateTotal()">
+                                min="{{ date_today }}" max="{{ item[6] }}" required onchange="calculateTotal()">
                         </div>
+                        
                         <div class="form-text text-danger" id="dateAlert" style="display:none;">
                             반납일은 시작일보다 빠를 수 없습니다.
                         </div>

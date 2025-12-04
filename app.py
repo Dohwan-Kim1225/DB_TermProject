@@ -362,26 +362,29 @@ def rent_item(item_id):
     my_points = cur.fetchone()[0]
 
     if request.method == 'POST':
-        start_date = request.form['start_date']
-        end_date = request.form['end_date']
-        delivery_option = request.form['delivery_option']
+        #start_date = request.form['start_date']      
+        start_date_obj = date.today()          # 날짜 객체 (DB 저장용)
+        end_date_str = request.form['end_date'] # 문자열 (폼 입력값)
+
+        # 날짜 계산을 위해 형변환
+        d1 = datetime.combine(start_date_obj, datetime.min.time()) # date -> datetime 변환
+        d2 = datetime.strptime(end_date_str, "%Y-%m-%d")
         
-        d1 = datetime.strptime(start_date, "%Y-%m-%d")
-        d2 = datetime.strptime(end_date, "%Y-%m-%d")
         days = (d2 - d1).days + 1
         
+        if days < 1:
+             flash("❌ 반납일은 오늘 이후여야 합니다.", "danger")
+             return redirect(url_for('rent_item', item_id=item_id))
+
+        delivery_option = request.form['delivery_option']
         del_fee = 500 if delivery_option == 'delivery' else 0
         total_cost = (days * item[5]) + del_fee
-
-        if my_points < total_cost:
-            flash(f"❌ 잔액이 부족하여 신청할 수 없습니다. (필요: {total_cost} P)", "danger")
-            return redirect(url_for('rent_item', item_id=item_id))
 
         try:
             cur.execute("""
                 INSERT INTO Rentals (item_id, borrower_id, start_date, end_date, delivery_option, delivery_fee)
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (item_id, session['resident_id'], start_date, end_date, delivery_option, del_fee))
+            """, (item_id, session['resident_id'], start_date_obj, end_date_str, delivery_option, del_fee))
             conn.commit()
             flash("✅ 대여 신청 완료! 승인을 기다리세요.", "success")
             return redirect(url_for('index'))
