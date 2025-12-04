@@ -28,6 +28,30 @@ def get_db_connection():
         # 일반 유저나 비로그인 상태면 주민 계정으로 접속
         return psycopg2.connect(**RESIDENT_CONF)
 
+# app.py
+
+def refresh_user_session(user_id):
+    """
+    DB에서 최신 회원 정보를 조회하여 세션(Session) 정보를 동기화하는 함수
+    돈(Points)이나 상태(Status)가 변경된 직후에 호출하면 무결성이 보장됩니다.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT name, points, status, is_manager FROM Residents WHERE resident_id = %s", (user_id,))
+        user = cur.fetchone()
+        if user:
+            # DB의 최신 값을 세션에 덮어씌움 (확실한 동기화)
+            session['name'] = user[0]
+            session['points'] = user[1]
+            session['status'] = user[2]
+            session['is_manager'] = user[3]
+    except Exception as e:
+        print(f"Session refresh failed: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
 # ==========================================
 # 2. 메인 대시보드 (데이터 조회)
 # ==========================================
@@ -118,30 +142,33 @@ def index():
         """, (session['resident_id'],))
         my_rentals = cur.fetchall()
 
-    # 4. [배송] 탭 로직 (수정됨)
+# 4. [배송] 탭 로직
     delivery_market = []
     my_deliveries = []
     if session.get('status') == 'approved':
-        # [수정] CASE WHEN을 사용하여 반납(rented, overdue)인 경우 주소(u1<->u2)를 뒤집어 출력
-        # u1: Owner(소유자), u2: Borrower(빌린사람)
-        # 반납 시: 출발지(u2) -> 도착지(u1)
+        # [수정] WHERE 절 마지막에 AND r.borrower_id != %s 추가
+        # 의미: 내가 빌린 건(Borrower가 나인 건)은 배송 시장 리스트에서 제외
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, 
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END as start_b,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END as start_u,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END as end_b,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END as end_u,
+                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END,
+                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END,
+                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END,
+                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END,
                    r.status
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id 
             JOIN View_Manager_Residents u2 ON r.borrower_id = u2.resident_id
             WHERE 
-                (r.status = 'approved' AND r.delivery_option = 'delivery' AND r.delivery_partner_id IS NULL)
-                OR 
-                (r.status IN ('rented', 'overdue') AND r.delivery_status = 'waiting_driver')
-        """)
+                (
+                    (r.status = 'approved' AND r.delivery_option = 'delivery' AND r.delivery_partner_id IS NULL)
+                    OR 
+                    (r.status IN ('rented', 'overdue') AND r.delivery_status = 'waiting_driver')
+                )
+                AND r.borrower_id != %s  -- [핵심] 내 요청은 안 보이게 처리
+        """, (session['resident_id'],))
         delivery_market = cur.fetchall()
+
 
         # 내 배송 현황도 동일하게 적용
         cur.execute("""
@@ -449,6 +476,8 @@ def approve_rental(rental_id):
             """, (borrower, rental_id))
         
         conn.commit()
+        refresh_user_session(session['resident_id'])
+    
         flash(f"✅ 승인 완료! {total}P 정산됨.", "success")
 
     except Exception as e:
@@ -472,7 +501,7 @@ def reject_rental(rental_id):
     flash("요청을 거절했습니다.", "warning")
     return redirect(url_for('index'))
 
-# ==========================================
+# ========================================== 
 # 5. 배송 및 관리자 기능
 # ==========================================
 @app.route('/accept_delivery/<int:rental_id>')
@@ -501,6 +530,87 @@ def pickup_delivery(rental_id):
     flash("📦 물품을 픽업했습니다.", "info")
     return redirect(url_for('index'))
 
+# 2. 배송 취소 라우트 추가 (app.py 맨 아래쪽이나 accept_delivery 근처)
+# ---------------------------------------------------------
+@app.route('/cancel_delivery/<int:rental_id>')
+def cancel_delivery(rental_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # 1. 현재 배송 정보와 관련자(Borrower, Owner) 정보 조회
+        cur.execute("""
+            SELECT r.delivery_fee, r.borrower_id, i.owner_id, r.delivery_partner_id, r.delivery_status
+            FROM Rentals r JOIN Items i ON r.item_id = i.item_id 
+            WHERE r.rental_id = %s
+        """, (rental_id,))
+        result = cur.fetchone()
+
+        if not result: return "잘못된 접근"
+        
+        fee, borrower_id, owner_id, partner_id, status = result
+        
+        # 권한 체크: 내 배송이 맞는지, 그리고 취소 가능한 상태(accepted)인지
+        if partner_id != session['resident_id'] or status != 'accepted':
+            flash("❌ 취소할 수 없는 상태입니다.", "danger")
+            return redirect(url_for('index'))
+
+        # ==========================================================
+        # [핵심 로직] 직거래(0원) 취소 시 -> 배송 대행(500원)으로 전환
+        # ==========================================================
+        if fee == 0:
+            # (1) 잔액 확인
+            cur.execute("SELECT points FROM Residents WHERE resident_id = %s", (session['resident_id'],))
+            my_points = cur.fetchone()[0]
+            
+            if my_points < 500:
+                flash("❌ 직거래를 취소하고 배송 대행을 맡기려면 500P가 필요합니다. (잔액 부족)", "danger")
+                return redirect(url_for('index'))
+            
+            # (2) 포인트 결제 (나 -> 소유자 에스크로)
+            cur.execute("UPDATE Residents SET points = points - 500 WHERE resident_id = %s", (session['resident_id'],))
+            cur.execute("UPDATE Residents SET points = points + 500 WHERE resident_id = %s", (owner_id,))
+            
+            # (3) 렌탈 정보 업데이트 (배송비 0 -> 500, 옵션 변경)
+            # 직거래를 포기했으니 이제 이 건은 '배송 대행' 건이 됩니다.
+            cur.execute("""
+                UPDATE Rentals 
+                SET delivery_partner_id = NULL, 
+                    delivery_status = 'waiting_driver',
+                    delivery_fee = 500,
+                    delivery_option = 'delivery'
+                WHERE rental_id = %s
+            """, (rental_id,))
+            
+            flash("✅ 직거래를 취소했습니다. 500P가 결제되었으며 배송 기사를 기다립니다.", "info")
+
+        # ==========================================================
+        # [일반 로직] 원래 배송 대행(500원)이었던 건을 알바가 취소
+        # ==========================================================
+        else:
+            # 돈은 이미 소유자에게 있으므로 상태만 리셋하면 됨
+            cur.execute("""
+                UPDATE Rentals 
+                SET delivery_partner_id = NULL, delivery_status = 'waiting_driver'
+                WHERE rental_id = %s
+            """, (rental_id,))
+            
+            flash("bucket 배송 업무를 취소했습니다. 해당 건은 다시 대기 목록으로 이동합니다.", "warning")
+        
+        conn.commit()
+        # [수정] 500P를 썼거나, 변동이 있었으니 확실하게 동기화
+        refresh_user_session(session['resident_id'])
+    except Exception as e:
+        conn.rollback()
+        print(e)
+        flash(f"오류: {e}", "danger")
+    finally:
+        cur.close()
+        conn.close()
+        
+    return redirect(url_for('index'))
 # app.py
 # ==========================================
 # 배송기사 배송 완료
@@ -533,6 +643,9 @@ def complete_delivery(rental_id):
             cur.execute("UPDATE Rentals SET delivery_status = 'completed', status = 'rented' WHERE rental_id = %s", (rental_id,))
         
         conn.commit()
+
+        # [수정] 내(배송기사) 포인트가 변했으므로 동기화
+        refresh_user_session(session['resident_id'])
     except Exception as e:
         conn.rollback()
         flash(f"오류: {e}", "danger")
@@ -645,6 +758,8 @@ def confirm_return(rental_id):
         cur.execute("UPDATE Items SET status = 'available' WHERE item_id = %s", (item_id,))
         
         conn.commit()
+        # [수정] 소유자(나)의 포인트가 차감됐을 수 있으므로 동기화
+        refresh_user_session(session['resident_id'])
         flash("✅ 반납 확인 완료! 물품이 다시 대여 가능 상태가 되었습니다.", "success")
         
     except Exception as e:

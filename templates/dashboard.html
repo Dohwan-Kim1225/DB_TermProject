@@ -196,9 +196,14 @@
                             <td>
                                 {% if job[7] == 'accepted' %}
                                     <a href="/pickup_delivery/{{ job[0] }}" class="btn btn-sm btn-warning">픽업</a>
+                                    <a href="/cancel_delivery/{{ job[0] }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('정말 배송을 포기하시겠습니까?');">취소</a>
                                 {% elif job[7] == 'picked_up' %}
-                                    <a href="/complete_delivery/{{ job[0] }}" class="btn btn-sm btn-primary">완료</a>
-                                {% else %} 완료됨 {% endif %}
+                                    <a href="/complete_delivery/{{ job[0] }}" class="btn btn-sm btn-primary">도착(완료)</a>
+                                {% elif job[7] == 'arrived' %}
+                                    <span class="text-muted small">확인 대기중</span>
+                                {% else %} 
+                                    완료됨 
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
