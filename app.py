@@ -60,7 +60,8 @@ def refresh_user_session(user_id):
 def index():
     if 'user_id' not in session:
         return redirect(url_for('login'))
-
+    # [수정] URL에서 'tab' 파라미터를 가져옴 (기본값은 'home')
+    active_tab = request.args.get('tab', 'home')
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -389,6 +390,7 @@ def index():
     conn.close()
 
     return render_template('dashboard.html', 
+                           active_tab=active_tab,  # [추가] HTML로 탭 정보 전달
                            items=items,
                            my_items=my_items,
                            incoming_requests=incoming_requests,
@@ -496,7 +498,7 @@ def logout():
 def register_item():
     if session.get('status') != 'approved':
         flash("❌ 승인된 주민만 물품을 등록할 수 있습니다.", "warning")
-        return redirect(url_for('index'))
+        return redirect(url_for('index', tab='home'))
 
     name = request.form['name']
     category = request.form['category']
@@ -519,7 +521,7 @@ def register_item():
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='home'))
 
 @app.route('/rent/<int:item_id>', methods=['GET', 'POST'])
 def rent_item(item_id):
@@ -566,7 +568,7 @@ def rent_item(item_id):
             """, (item_id, session['resident_id'], start_date_obj, end_date_str, delivery_option, del_fee))
             conn.commit()
             flash("✅ 대여 신청 완료! 승인을 기다리세요.", "success")
-            return redirect(url_for('index'))
+            return redirect(url_for('index', tab='borrower'))
         except Exception as e:
             conn.rollback()
             flash(f"신청 실패: {e}", "danger")
@@ -649,7 +651,7 @@ def approve_rental(rental_id):
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='owner'))
 # ==========================================
 # 대여 거절
 # ==========================================
@@ -662,7 +664,7 @@ def reject_rental(rental_id):
     cur.close()
     conn.close()
     flash("요청을 거절했습니다.", "warning")
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='owner'))
 
 
 
@@ -682,7 +684,7 @@ def accept_delivery(rental_id):
     cur.close()
     conn.close()
     flash("🛵 배송을 수락했습니다! 안전하게 배달해주세요.", "success")
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='delivery'))
 
 @app.route('/pickup_delivery/<int:rental_id>')
 def pickup_delivery(rental_id):
@@ -693,7 +695,7 @@ def pickup_delivery(rental_id):
     cur.close()
     conn.close()
     flash("📦 물품을 픽업했습니다.", "info")
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='delivery'))
 
 # 2. 배송 취소 라우트 추가 (app.py 맨 아래쪽이나 accept_delivery 근처)
 # ---------------------------------------------------------
@@ -720,7 +722,7 @@ def cancel_delivery(rental_id):
         # 권한 체크: 내 배송이 맞는지, 그리고 취소 가능한 상태(accepted)인지
         if partner_id != session['resident_id'] or status != 'accepted':
             flash("❌ 취소할 수 없는 상태입니다.", "danger")
-            return redirect(url_for('index'))
+            return redirect(url_for('index', tab='delivery'))
 
         # ==========================================================
         # [핵심 로직] 직거래(0원) 취소 시 -> 배송 대행(500원)으로 전환
@@ -732,7 +734,7 @@ def cancel_delivery(rental_id):
             
             if my_points < 500:
                 flash("❌ 직거래를 취소하고 배송 대행을 맡기려면 500P가 필요합니다. (잔액 부족)", "danger")
-                return redirect(url_for('index'))
+                return redirect(url_for('index', tab='delivery'))
             
             # (2) 포인트 결제 (나 -> 소유자 에스크로)
             cur.execute("UPDATE Residents SET points = points - 500 WHERE resident_id = %s", (session['resident_id'],))
@@ -775,7 +777,7 @@ def cancel_delivery(rental_id):
         cur.close()
         conn.close()
         
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='delivery'))
 # app.py
 # ==========================================
 # 배송기사 배송 완료
@@ -817,7 +819,7 @@ def complete_delivery(rental_id):
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='delivery'))
 # app.py 에 추가
 # ==========================================
 # 반납 배송
@@ -846,7 +848,7 @@ def request_return(rental_id):
         # 이미 반납된 상태면 중단
         if status not in ['rented', 'overdue']:
             flash("❌ 이미 반납되었거나 반납할 수 없는 상태입니다.", "warning")
-            return redirect(url_for('index'))
+            return redirect(url_for('index', tab='borrower'))
 
         # 2. 배송비 트랜잭션 (배송 반납인 경우)
         if fee > 0:
@@ -855,7 +857,7 @@ def request_return(rental_id):
             
             if current_points < fee:
                 flash("❌ 잔액이 부족하여 배송 반납을 신청할 수 없습니다.", "danger")
-                return redirect(url_for('index'))
+                return redirect(url_for('index', tab='borrower'))
                 
             # Borrower 차감 -> Owner에게 임시 지급 (배송 완료 시 기사에게 이동)
             cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (fee, borrower_id))
@@ -887,7 +889,7 @@ def request_return(rental_id):
         cur.close()
         conn.close()
         
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='borrower'))
 # ==========================================
 # 소유자 반납확인
 # ==========================================
@@ -974,7 +976,7 @@ def confirm_return(rental_id):
         cur.close()
         conn.close()
         
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='owner'))
 
 # ==========================================
 # 분쟁신고
@@ -1025,7 +1027,7 @@ def report_dispute(rental_id):
         cur.close()
         conn.close()
         
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='owner'))
 # ==========================================
 # 분쟁정보 확인
 # ==========================================
@@ -1056,7 +1058,7 @@ def close_dispute(dispute_id):
             
         if dispute_status != 'resolved':
             flash("❌ 아직 매니저의 판결이 완료되지 않았습니다.", "warning")
-            return redirect(url_for('index'))
+            return redirect(url_for('index', tab='owner'))
 
         # 2. [수정됨] 상태 정상화 (Lock 해제 및 배송 완료 처리)
         # Rental status -> 'returned' (이력으로 이동)
@@ -1082,7 +1084,7 @@ def close_dispute(dispute_id):
         cur.close()
         conn.close()
         
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='owner'))
 # ==========================================
 # [매니저 액션] 승인 / 거절 / 복구(대기상태로)
 # ==========================================
@@ -1096,7 +1098,7 @@ def approve_resident(id):
     cur.close()
     conn.close()
     flash("✅ 승인 처리되었습니다.", "success")
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='admin'))
 
 @app.route('/reject_resident/<int:id>')
 def reject_resident(id):
@@ -1108,7 +1110,7 @@ def reject_resident(id):
     cur.close()
     conn.close()
     flash("🚫 거절(정지) 처리되었습니다.", "warning")
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='admin'))
 
 @app.route('/restore_resident/<int:id>')
 def restore_resident(id):
@@ -1121,7 +1123,7 @@ def restore_resident(id):
     cur.close()
     conn.close()
     flash("♻️ 대기 상태로 되돌렸습니다.", "info")
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='admin'))
 # ==========================================
 # [매니저 액션] 분쟁판결
 # ==========================================
@@ -1175,6 +1177,6 @@ def adjudicate_dispute(dispute_id):
         cur.close()
         conn.close()
         
-    return redirect(url_for('index'))
+    return redirect(url_for('index', tab='admin'))
 if __name__ == '__main__':
     app.run(debug=True)
