@@ -111,7 +111,50 @@
                 {% endfor %}
             </tbody>
         </table>
-
+{% if my_disputes %}
+        <div class="card border-danger mb-4">
+            <div class="card-header bg-danger text-white fw-bold">
+                ⚖️ 진행 중인 분쟁
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-bordered mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>물품명</th>
+                            <th>빌린사람</th>
+                            <th>진행 상태</th>
+                            <th>관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for disp in my_disputes %}
+                        <tr>
+                            <td>{{ disp[1] }}</td>
+                            <td>{{ disp[2] }}</td>
+                            <td>
+                                {% if disp[3] == 'open' %}
+                                    <span class="badge bg-secondary">⏳ 매니저 심사 중</span>
+                                {% elif disp[3] == 'resolved' %}
+                                    <span class="badge bg-success">✅ 판결 완료</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if disp[3] == 'resolved' %}
+                                    <button class="btn btn-sm btn-primary" 
+                                        onclick='showResolution({{ disp[5] }}, {{ disp[4] | tojson }})'>
+                                        📜 판결 보기 & 종료
+                                    </button>
+                                {% else %}
+                                    <span class="text-muted small">대기 중</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
         <h5 class="mt-4">↩️ 반납 확인 및 검수 (도착한 물품)</h5>
         <table class="table table-bordered align-middle">
             <thead class="table-light"><tr><th>물품</th><th>빌린사람</th><th>배송상태</th><th>검수 및 확정</th></tr></thead>
@@ -168,6 +211,9 @@
                         <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#historyModal">
                             📜 대여 이력 조회하기
                         </button>
+                        <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#disputeHistoryModal">
+                                ⚖️ 분쟁 기록 모아보기
+                        </button>
                     </div>
                 </div>
             </div>
@@ -179,11 +225,11 @@
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">🙋‍♂️ 현재 진행 중인 대여</h5>
             <button class="btn btn-dark btn-sm" data-bs-toggle="modal" data-bs-target="#borrowerHistoryModal">
-                📜 지난 대여 기록 보기
+                📜 지난 대여 기록 (완료/거절)
             </button>
         </div>
 
-        <div class="table-responsive">
+        <div class="table-responsive mb-5">
             <table class="table table-hover align-middle">
                 <thead class="table-light">
                     <tr>
@@ -235,6 +281,75 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+                    <span class="fw-bold">⚖️ 나의 분쟁 내역 (대여자)</span>
+                    
+                    <div class="d-flex gap-2">
+                        <input type="text" id="disputeSearchInput" class="form-control form-control-sm" 
+                               placeholder="물품명 또는 소유자 검색" 
+                               onkeypress="if(event.keyCode==13) {updateDisputeList(); return false;}" 
+                               style="max-width: 200px;">
+                        
+                        <select class="form-select form-select-sm w-auto text-dark" id="disputeSortSelect">
+                            <option value="latest">📅 날짜: 최신순 (기본)</option>
+                            <option value="open">⏳ 상태: 심사 중인 건 우선</option>
+                            <option value="resolved">✅ 상태: 판결 완료된 건 우선</option>
+                        </select>
+
+                        <button class="btn btn-light text-danger fw-bold btn-sm text-nowrap" type="button" onclick="updateDisputeList()">
+                            🔍 조회
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0" id="disputeTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 10%">ID</th>
+                            <th style="width: 25%">물품명</th>
+                            <th style="width: 20%">소유자(신고자)</th>
+                            <th style="width: 20%">진행 상태</th>
+                            <th style="width: 15%">판결 보기</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in borrower_disputes %}
+                        <tr data-id="{{ log[0] }}" 
+                            data-item="{{ log[1] }}" 
+                            data-owner="{{ log[2] }}" 
+                            data-status="{{ log[5] }}">
+                            
+                            <td class="text-muted small">#{{ log[0] }}</td>
+                            <td class="fw-bold">{{ log[1] }}</td>
+                            <td>{{ log[2] }}</td>
+                            <td>
+                                {% if log[5] == 'open' %}
+                                    <span class="badge bg-secondary">⏳ 심사 중</span>
+                                {% elif log[5] == 'resolved' %}
+                                    <span class="badge bg-success">✅ 판결 완료</span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark">{{ log[5] }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-dark" 
+                                        onclick="showDisputeDetail('{{ log[1] }}', '{{ log[3] }}', '{{ log[4] }}', '{{ log[6] }}')">
+                                    📜 상세
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="text-center py-5 text-muted">분쟁 기록이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
     <div class="tab-pane fade" id="delivery">
@@ -326,24 +441,53 @@
                     </ul>
                 </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-7">
                 <div class="card h-100 border-danger">
-                    <div class="card-header bg-danger text-white fw-bold">⚖️ 분쟁 신고 관리</div>
-                    <div class="card-body">
+                    <div class="card-header bg-danger text-white fw-bold">
+                        ⚖️ 분쟁 신고 접수 현황
+                    </div>
+                    <div class="card-body p-0">
                         {% if open_disputes %}
-                        <table class="table table-sm">
-                            <thead><tr><th>내용</th><th>당사자</th><th>관리</th></tr></thead>
-                            <tbody>
-                                {% for d in open_disputes %}
-                                <tr>
-                                    <td>{{ d[2] }}</td>
-                                    <td>{{ d[3] }} vs {{ d[4] }}</td>
-                                    <td><button class="btn btn-sm btn-outline-danger">판결</button></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                        {% else %} <p class="text-muted text-center">접수된 분쟁 없음</p> {% endif %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 30%;">물품/사유</th>
+                                        <th style="width: 25%;">신고자 (ID)</th>
+                                        <th style="width: 25%;">피신고자 (ID)</th>
+                                        <th style="width: 20%;">관리</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for d in open_disputes %}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ d[5] }}</strong><br>
+                                            <span class="text-danger small">{{ d[2] }}</span>
+                                        </td>
+                                        
+                                        <td>
+                                            <span class="badge bg-light text-dark border">{{ d[3] }}</span>
+                                        </td>
+                                        
+                                        <td>
+                                            <span class="badge bg-light text-dark border">{{ d[4] }}</span>
+                                        </td>
+                                        
+                                        <td>
+                                            <button class="btn btn-sm btn-danger w-100" 
+                                                    onclick="openAdjudicateModal('{{ d[0] }}', '{{ d[3] }}', '{{ d[4] }}')">
+                                                판결하기
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted text-center py-5">현재 접수된 분쟁이 없습니다.</p>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -794,4 +938,316 @@
         </div>
     </div>
 </div>
+<div class="modal fade" id="resolutionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content border-success">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">📜 매니저 판결 결과</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6 class="fw-bold">매니저 코멘트:</h6>
+                <div class="alert alert-light border p-3 mb-3" id="resolutionText" style="white-space: pre-line;">
+                    </div>
+                <p class="small text-muted">
+                    * 위 판결에 따라 포인트 정산이 완료되었습니다.<br>
+                    * [최종 확인]을 누르면 물품 잠금이 해제되고 대여 가능 상태로 변경됩니다.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <form id="closeDisputeForm" method="GET">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                    <button type="submit" class="btn btn-success">최종 확인 (상황 종료)</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 판결 모달 열기 함수
+    function showResolution(disputeId, resolutionText) {
+        document.getElementById('resolutionText').innerText = resolutionText;
+        // 확인 버튼 누르면 /close_dispute/ID 로 이동
+        document.getElementById('closeDisputeForm').action = "/close_dispute/" + disputeId;
+        new bootstrap.Modal(document.getElementById('resolutionModal')).show();
+    }
+</script>
+<div class="modal fade" id="disputeHistoryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">⚖️ 내 물건 분쟁 기록</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>물품명</th>
+                            <th>빌린사람</th>
+                            <th>상태</th>
+                            <th>상세보기</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in dispute_history %}
+                        <tr>
+                            <td><strong>{{ log[1] }}</strong></td>
+                            <td>{{ log[2] }}</td>
+                            <td>
+                                {% if log[5] == 'open' %}
+                                    <span class="badge bg-secondary">진행 중</span>
+                                {% elif log[5] == 'resolved' %}
+                                    <span class="badge bg-success">해결됨</span>
+                                {% else %}
+                                    {{ log[5] }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-dark" 
+                                        onclick="showDisputeDetail('{{ log[1] }}', '{{ log[3] }}', '{{ log[4] }}', '{{ log[6] }}')">
+                                    상세
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center py-4 text-muted">분쟁 기록이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="disputeDetailModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">📄 분쟁 상세 내용</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6 class="fw-bold">📦 물품명</h6>
+                <p id="dispDetailItem"></p>
+                <hr>
+                <h6 class="fw-bold text-danger">🚨 신고 사유</h6>
+                <div class="alert alert-light border" id="dispDetailReason" style="white-space: pre-line;"></div>
+                
+                <h6 class="fw-bold text-success">⚖️ 판결 내용</h6>
+                <div class="alert alert-success border" id="dispDetailResolution" style="white-space: pre-line;"></div>
+                
+                <div id="dispCompSection" style="display:none;">
+                    <h6 class="fw-bold">💰 배상금</h6>
+                    <p class="text-danger fw-bold" id="dispDetailComp"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showDisputeDetail(item, reason, resolution, compensation) {
+        document.getElementById('dispDetailItem').innerText = item;
+        document.getElementById('dispDetailReason').innerText = reason;
+        
+        const resBox = document.getElementById('dispDetailResolution');
+        if (resolution && resolution !== 'None') {
+            resBox.innerText = resolution;
+            resBox.classList.remove('d-none');
+        } else {
+            resBox.innerText = "(아직 판결이 내려지지 않았습니다)";
+            resBox.classList.add('text-muted');
+        }
+
+        const compSec = document.getElementById('dispCompSection');
+        if (compensation && compensation !== '0' && compensation !== 'None') {
+            compSec.style.display = 'block';
+            document.getElementById('dispDetailComp').innerText = compensation + " P";
+        } else {
+            compSec.style.display = 'none';
+        }
+
+        // 히스토리 모달 위에 상세 모달을 띄우기 위해 z-index 조정 또는 닫고 열기
+        // 여기서는 간단히 새 모달을 띄웁니다.
+        new bootstrap.Modal(document.getElementById('disputeDetailModal')).show();
+    }
+</script>
+<div class="modal fade" id="adjudicateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="adjudicateForm" method="POST">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">⚖️ 분쟁 판결 (Adjudication)</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning small">
+                        <strong>당사자:</strong> <span id="adjOwner"></span>(소유자) vs <span id="adjBorrower"></span>(대여자)<br>
+                        * 판결 확정 시 포인트가 즉시 이체되며 되돌릴 수 없습니다.
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">판결 내용 (Resolution)</label>
+                        <textarea name="resolution" class="form-control" rows="3" placeholder="판결 이유와 결과를 상세히 적어주세요." required></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">배상금 (Compensation)</label>
+                        <div class="input-group">
+                            <input type="number" name="amount" class="form-control" value="0" min="0" required>
+                            <span class="input-group-text">P</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">지불 방향</label>
+                        <div class="list-group">
+                            <label class="list-group-item">
+                                <input class="form-check-input me-1" type="radio" name="decision" value="borrower_to_owner" checked>
+                                대여자 ➔ 소유자 (파손 배상 등)
+                            </label>
+                            <label class="list-group-item">
+                                <input class="form-check-input me-1" type="radio" name="decision" value="owner_to_borrower">
+                                소유자 ➔ 대여자 (부당 요금 반환)
+                            </label>
+                            <label class="list-group-item">
+                                <input class="form-check-input me-1" type="radio" name="decision" value="none">
+                                배상 없음 (화해/기각)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-danger">최종 판결하기</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openAdjudicateModal(disputeId, ownerName, borrowerName) {
+        document.getElementById('adjudicateForm').action = "/adjudicate_dispute/" + disputeId;
+        document.getElementById('adjOwner').innerText = ownerName;
+        document.getElementById('adjBorrower').innerText = borrowerName;
+        new bootstrap.Modal(document.getElementById('adjudicateModal')).show();
+    }
+</script>
+<div class="modal fade" id="borrowerDisputeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">⚖️ 나의 분쟁 내역 (대여자)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-light border small text-muted text-center mb-3">
+                    * 이곳에서는 소유자가 신고한 분쟁 내역과 매니저의 판결 결과를 확인할 수 있습니다.<br>
+                    * 판결에 대한 이의 제기는 매니저에게 직접 문의해주세요.
+                </div>
+
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>물품명</th>
+                            <th>소유자(신고자)</th>
+                            <th>상태</th>
+                            <th>판결 보기</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in borrower_disputes %}
+                        <tr>
+                            <td><strong>{{ log[1] }}</strong></td>
+                            <td>{{ log[2] }}</td>
+                            <td>
+                                {% if log[5] == 'open' %}
+                                    <span class="badge bg-secondary">심사 중</span>
+                                {% elif log[5] == 'resolved' %}
+                                    <span class="badge bg-success">판결 완료</span>
+                                {% else %}
+                                    {{ log[5] }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-dark" 
+                                        onclick="showDisputeDetail('{{ log[1] }}', '{{ log[3] }}', '{{ log[4] }}', '{{ log[6] }}')">
+                                    📜 상세
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center py-4 text-muted">분쟁 기록이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    // [통합 함수] 검색과 정렬을 한 번에 실행
+    function updateDisputeList() {
+        const table = document.getElementById("disputeTable");
+        const tbody = table.querySelector("tbody");
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        
+        // 데이터 없으면 중단
+        if (rows.length <= 1 && !rows[0].hasAttribute('data-id')) return;
+
+        // 1. 검색어 필터링 (Filtering)
+        const searchInput = document.getElementById('disputeSearchInput').value.toUpperCase();
+        
+        rows.forEach(row => {
+            const item = row.getAttribute('data-item');
+            const owner = row.getAttribute('data-owner');
+            
+            if (item && owner) {
+                if (item.toUpperCase().indexOf(searchInput) > -1 || owner.toUpperCase().indexOf(searchInput) > -1) {
+                    row.style.display = ""; // 보임
+                } else {
+                    row.style.display = "none"; // 숨김
+                }
+            }
+        });
+
+        // 2. 정렬 실행 (Sorting)
+        const sortOption = document.getElementById("disputeSortSelect").value;
+
+        rows.sort((a, b) => {
+            const idA = parseInt(a.getAttribute('data-id'));
+            const idB = parseInt(b.getAttribute('data-id'));
+            const statusA = a.getAttribute('data-status');
+            const statusB = b.getAttribute('data-status');
+
+            if (sortOption === 'latest') {
+                return idB - idA; // 최신순
+            } 
+            else if (sortOption === 'open') {
+                // 심사중('open') 우선
+                if (statusA === 'open' && statusB !== 'open') return -1;
+                if (statusA !== 'open' && statusB === 'open') return 1;
+                return idB - idA;
+            } 
+            else if (sortOption === 'resolved') {
+                // 완료됨('resolved') 우선
+                if (statusA === 'resolved' && statusB !== 'resolved') return -1;
+                if (statusA !== 'resolved' && statusB === 'resolved') return 1;
+                return idB - idA;
+            }
+        });
+
+        // 정렬된 순서대로 다시 배치
+        rows.forEach(row => tbody.appendChild(row));
+    }
+</script>
 {% endblock %}

@@ -116,6 +116,8 @@ def index():
     incoming_requests = []
     arrived_returns = []  # [추가 1] 변수 초기화
     owner_history = []
+    my_disputes = []  # [추가] 분쟁 목록 초기화
+    dispute_history = [] # [신규] 분쟁 히스토리용 리스트
 
     # [수정됨] is_verified 대신 status가 'approved'인지 확인
     if session.get('status') == 'approved': 
@@ -132,15 +134,17 @@ def index():
         # ==========================================================
         # [추가 2] 여기에 반납 도착 확인 쿼리를 넣으세요!
         # ==========================================================
-        # [소유자] 반납 도착 확인 대기
+        # (A) 반납 확인 대기 쿼리 (다시 복사해서 덮어쓰세요)
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, 
-                   p.name, p.phone_number -- [추가] 기사 정보
+                   p.name, p.phone_number 
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
             LEFT JOIN View_Manager_Residents p ON r.delivery_partner_id = p.resident_id
-            WHERE i.owner_id = %s AND r.delivery_status = 'arrived'
+            WHERE i.owner_id = %s 
+              AND r.delivery_status = 'arrived'
+              AND r.status != 'disputed'  -- <--- [범인 후보 1순위] 이 줄이 없으면 무조건 뜹니다.
         """, (session['resident_id'],))
         arrived_returns = cur.fetchall()
 
@@ -158,11 +162,37 @@ def index():
         """, (session['resident_id'],))
         owner_history = cur.fetchall()
 
+        # (B) 진행 중인 분쟁 (기존 my_disputes 유지)
+        cur.execute("""
+            SELECT r.rental_id, i.name, u.name, d.status, d.resolution, d.dispute_id
+            FROM Rentals r 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
+            JOIN Disputes d ON r.rental_id = d.rental_id
+            WHERE i.owner_id = %s 
+              AND r.status = 'disputed'
+            ORDER BY d.dispute_id DESC
+        """, (session['resident_id'],))
+        my_disputes = cur.fetchall()
+        # (C) [신규] 전체 분쟁 기록 (과거 이력 포함)
+        cur.execute("""
+            SELECT d.dispute_id, i.name, u.name, d.reason, d.resolution, d.status, 
+                   d.compensation_amount, r.rental_id
+            FROM Disputes d
+            JOIN Rentals r ON d.rental_id = r.rental_id
+            JOIN Items i ON r.item_id = i.item_id
+            JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
+            WHERE i.owner_id = %s
+            ORDER BY d.dispute_id DESC
+        """, (session['resident_id'],))
+        dispute_history = cur.fetchall()
+
     # render_template에 owner_history=owner_history 추가 필수!
 
     # 3. [대여자] 탭 데이터 조회 (Active vs History 분리)
     active_rentals = []
     borrower_history = []
+    borrower_disputes = []  # [추가] 대여자 분쟁 기록
     
     if session.get('status') == 'approved':
         # (A) 진행 중인 대여 (Active)
@@ -194,6 +224,19 @@ def index():
             ORDER BY r.rental_id DESC
         """, (session['resident_id'],))
         borrower_history = cur.fetchall()
+
+        # (C) [신규] 내 분쟁 기록 조회 (내가 대여자인 건)
+        cur.execute("""
+            SELECT d.dispute_id, i.name, u.name, d.reason, d.resolution, d.status, 
+                   d.compensation_amount
+            FROM Disputes d
+            JOIN Rentals r ON d.rental_id = r.rental_id
+            JOIN Items i ON r.item_id = i.item_id
+            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id  -- u: 소유자(상대방)
+            WHERE r.borrower_id = %s
+            ORDER BY d.dispute_id DESC
+        """, (session['resident_id'],))
+        borrower_disputes = cur.fetchall()
 
     # [중요] render_template에 변수명 변경/추가
     # my_rentals -> active_rentals 로 변경하고, borrower_history 추가
@@ -286,6 +329,28 @@ def index():
             WHERE status = 'pending' AND is_manager = FALSE
         """)
         pending_residents = cur.fetchall()
+
+        # (B) [수정] 분쟁 목록 (ID 위주 조회)
+        # 인덱스(Index) 순서:
+        # 0: dispute_id
+        # 1: rental_id
+        # 2: reason (사유)
+        # 3: u1.user_id (신고자 ID)  <-- 변경됨
+        # 4: u2.user_id (피신고자 ID) <-- 변경됨
+        # 5: i.name (물품명)
+        cur.execute("""
+            SELECT d.dispute_id, r.rental_id, d.reason, 
+                   u1.user_id, 
+                   u2.user_id, 
+                   i.name
+            FROM Disputes d 
+            JOIN Rentals r ON d.rental_id = r.rental_id 
+            JOIN Items i ON r.item_id = i.item_id 
+            JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id
+            JOIN View_Manager_Residents u2 ON r.borrower_id = u2.resident_id
+            WHERE d.status = 'open'
+        """)
+        open_disputes = cur.fetchall()
         
         # (B) 분쟁 목록
         cur.execute("""
@@ -329,8 +394,11 @@ def index():
                            incoming_requests=incoming_requests,
                            arrived_returns=arrived_returns,
                            owner_history=owner_history,  # <--- [★중요★] 이 줄이 꼭 있어야 이력이 뜹니다!
+                           my_disputes=my_disputes,
+                           dispute_history=dispute_history,
                            active_rentals=active_rentals,    # [변경] my_rentals 대신 사용
                            borrower_history=borrower_history, # [추가]
+                           borrower_disputes=borrower_disputes,
                            delivery_market=delivery_market,
                            my_deliveries=my_deliveries,
                            delivery_history=delivery_history, # [추가]
@@ -948,6 +1016,63 @@ def report_dispute(rental_id):
         
     return redirect(url_for('index'))
 # ==========================================
+# 분쟁정보 확인
+# ==========================================
+# app.py
+
+@app.route('/close_dispute/<int:dispute_id>')
+def close_dispute(dispute_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 1. 분쟁 정보 및 소유자 확인
+        cur.execute("""
+            SELECT r.rental_id, i.item_id, i.owner_id, d.status 
+            FROM Disputes d
+            JOIN Rentals r ON d.rental_id = r.rental_id
+            JOIN Items i ON r.item_id = i.item_id
+            WHERE d.dispute_id = %s
+        """, (dispute_id,))
+        data = cur.fetchone()
+        
+        if not data: return "정보 없음"
+        rental_id, item_id, owner_id, dispute_status = data
+        
+        if owner_id != session['resident_id']:
+            return "권한 없음"
+            
+        if dispute_status != 'resolved':
+            flash("❌ 아직 매니저의 판결이 완료되지 않았습니다.", "warning")
+            return redirect(url_for('index'))
+
+        # 2. [수정됨] 상태 정상화 (Lock 해제 및 배송 완료 처리)
+        # Rental status -> 'returned' (이력으로 이동)
+        # Rental delivery_status -> 'completed' (반납 확인 리스트에서 제거) [★핵심]
+        # Item status -> 'available' (다시 대여 가능)
+        cur.execute("""
+            UPDATE Rentals 
+            SET status = 'returned', delivery_status = 'completed' 
+            WHERE rental_id = %s
+        """, (rental_id,))
+        
+        cur.execute("UPDATE Items SET status = 'available' WHERE item_id = %s", (item_id,))
+        
+        conn.commit()
+        refresh_user_session(session['resident_id']) # 세션 동기화 (혹시 모를 포인트 변동 대비)
+        
+        flash("✅ 분쟁 처리가 최종 완료되었습니다. 물품이 다시 대여 가능 상태가 되었습니다.", "success")
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f"오류: {e}", "danger")
+    finally:
+        cur.close()
+        conn.close()
+        
+    return redirect(url_for('index'))
+# ==========================================
 # [매니저 액션] 승인 / 거절 / 복구(대기상태로)
 # ==========================================
 @app.route('/approve_resident/<int:id>')
@@ -986,7 +1111,59 @@ def restore_resident(id):
     conn.close()
     flash("♻️ 대기 상태로 되돌렸습니다.", "info")
     return redirect(url_for('index'))
-
-
+# ==========================================
+# [매니저 액션] 분쟁판결
+# ==========================================
+@app.route('/adjudicate_dispute/<int:dispute_id>', methods=['POST'])
+def adjudicate_dispute(dispute_id):
+    if not session.get('is_manager'): return "권한 없음"
+    
+    resolution = request.form['resolution'] # 판결문
+    amount = int(request.form['amount'])    # 배상금
+    decision = request.form['decision']     # 누구에게 돈을 줄 것인가?
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 관련 당사자 정보 조회
+        cur.execute("""
+            SELECT r.borrower_id, i.owner_id 
+            FROM Disputes d 
+            JOIN Rentals r ON d.rental_id = r.rental_id 
+            JOIN Items i ON r.item_id = i.item_id 
+            WHERE d.dispute_id = %s
+        """, (dispute_id,))
+        borrower_id, owner_id = cur.fetchone()
+        
+        # 1. 배상금 트랜잭션 실행 (즉시 처리)
+        if amount > 0:
+            if decision == 'borrower_to_owner': # 대여자 -> 소유자 (파손 배상)
+                cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (amount, borrower_id))
+                cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (amount, owner_id))
+            elif decision == 'owner_to_borrower': # 소유자 -> 대여자 (부당 이득 반환 등)
+                cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (amount, owner_id))
+                cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (amount, borrower_id))
+        
+        # 2. 분쟁 상태 업데이트 (resolved)
+        cur.execute("""
+            UPDATE Disputes 
+            SET status = 'resolved', 
+                resolution = %s, 
+                compensation_amount = %s,
+                manager_id = %s
+            WHERE dispute_id = %s
+        """, (resolution, amount, session['resident_id'], dispute_id))
+        
+        conn.commit()
+        flash("✅ 판결이 완료되었습니다. 배상금이 즉시 정산되었습니다.", "success")
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f"판결 실패: {e}", "danger")
+    finally:
+        cur.close()
+        conn.close()
+        
+    return redirect(url_for('index'))
 if __name__ == '__main__':
     app.run(debug=True)
