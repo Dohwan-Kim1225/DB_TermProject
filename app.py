@@ -580,7 +580,6 @@ def rent_item(item_id):
 
 # [핵심] 대여 승인 (트랜잭션)
 # app.py
-
 @app.route('/approve_rental/<int:rental_id>')
 def approve_rental(rental_id):
     if session.get('status') != 'approved': return "권한 없음"
@@ -597,8 +596,14 @@ def approve_rental(rental_id):
         """, (rental_id,))
         data = cur.fetchone()
         
+        if not data: return "데이터 없음"
+        
         borrower, owner, fee_per_day, s_date, e_date, del_fee, item_id = data
         
+        # 권한 체크 (본인 물건인지)
+        if owner != session['resident_id']:
+            return "권한 없음"
+
         days = (e_date - s_date).days + 1
         total = (days * fee_per_day) + del_fee
 
@@ -606,21 +611,27 @@ def approve_rental(rental_id):
         cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (total, borrower))
         cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (total, owner))
         
-        # 3. 대여 상태 승인 처리
+        # 3. 해당 대여 건 승인 처리
         cur.execute("UPDATE Rentals SET status = 'approved' WHERE rental_id = %s", (rental_id,))
         
-        # 4. 물품 상태 변경 (목록에서 숨김)
+        # 4. 물품 상태 변경 (대여중으로 변경하여 목록에서 숨김)
         cur.execute("UPDATE Items SET status = 'rented' WHERE item_id = %s", (item_id,))
         
         # ==========================================================
-        # [수정된 부분] 배송 옵션에 따른 상태 분기 처리
+        # [신규 기능] 동시 요청 자동 거절 (Auto-Reject)
+        # 해당 물품(item_id)에 대한 다른 요청들(requested)을 모두 거절(rejected) 처리
         # ==========================================================
+        cur.execute("""
+            UPDATE Rentals 
+            SET status = 'rejected' 
+            WHERE item_id = %s AND status = 'requested' AND rental_id != %s
+        """, (item_id, rental_id))
+
+        # 5. 배송 상태 설정
         if del_fee > 0:
-            # (A) 배송 대행: 기사 매칭 대기 상태로 설정
             cur.execute("UPDATE Rentals SET delivery_status = 'waiting_driver' WHERE rental_id = %s", (rental_id,))
         else:
-            # (B) 직거래(Pickup): 대여자 본인을 배송 기사로 자동 지정 (Self-Delivery)
-            # 배송비는 0원이지만, 상태 관리를 위해 '내 배송 현황'에 등록됨
+            # 직거래: 대여자 본인을 배송 기사로 자동 지정
             cur.execute("""
                 UPDATE Rentals 
                 SET delivery_partner_id = %s, delivery_status = 'accepted' 
@@ -628,9 +639,9 @@ def approve_rental(rental_id):
             """, (borrower, rental_id))
         
         conn.commit()
-        refresh_user_session(session['resident_id'])
-    
-        flash(f"✅ 승인 완료! {total}P 정산됨.", "success")
+        refresh_user_session(session['resident_id']) # 세션 동기화
+        
+        flash(f"✅ 승인 완료! 나머지 대기 요청들은 자동으로 거절되었습니다.", "success")
 
     except Exception as e:
         conn.rollback()
