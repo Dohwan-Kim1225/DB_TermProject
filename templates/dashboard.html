@@ -546,6 +546,12 @@
                                      <a href="/approve_resident/{{ user[0] }}" class="btn btn-sm btn-outline-success" onclick="return confirm('재승인하시겠습니까?');">재승인</a>
                                  {% endif %}
                              </td>
+                             <td>
+                                {% if user[7] %} <a href="/toggle_delivery_ban/{{ user[0] }}" class="btn btn-sm btn-warning">✅ 배송 복구</a>
+                                {% else %}
+                                    <a href="/toggle_delivery_ban/{{ user[0] }}" class="btn btn-sm btn-dark">🚫 배송 정지</a>
+                                {% endif %}
+                            </td>
                          </tr>
                          {% else %} <tr><td colspan="5" class="text-center text-muted">결과 없음</td></tr> {% endfor %}
                      </tbody>

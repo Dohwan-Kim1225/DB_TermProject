@@ -378,7 +378,7 @@ def index():
         # (C) [신규] 주민 관리 이력 (History) - 검색 및 필터링 적용
         # 기본 쿼리: 이미 처리된(승인/거절) 주민만 조회
         query = """
-            SELECT resident_id, user_id, name, phone_number, building, unit, status 
+            SELECT resident_id, user_id, name, phone_number, building, unit, status, is_delivery_banned
             FROM View_Manager_Residents 
             WHERE is_manager = FALSE AND status IN ('approved', 'rejected')
         """
@@ -722,8 +722,15 @@ def withdraw_item(item_id):
 # ==========================================
 @app.route('/accept_delivery/<int:rental_id>')
 def accept_delivery(rental_id):
+    # [추가] 배송 정지 여부 확인
     conn = get_db_connection()
     cur = conn.cursor()
+    cur.execute("SELECT is_delivery_banned FROM Residents WHERE resident_id = %s", (session['resident_id'],))
+    is_banned = cur.fetchone()[0]
+    
+    if is_banned:
+        flash("🚫 관리자에 의해 배송 활동이 정지되었습니다.", "danger")
+        return redirect(url_for('index', tab='delivery'))
     cur.execute("""
         UPDATE Rentals 
         SET delivery_partner_id = %s, delivery_status = 'accepted'
@@ -1172,6 +1179,23 @@ def restore_resident(id):
     cur.close()
     conn.close()
     flash("♻️ 대기 상태로 되돌렸습니다.", "info")
+    return redirect(url_for('index', tab='admin'))
+@app.route('/toggle_delivery_ban/<int:resident_id>')
+
+# ==========================================
+# [매니저 액션] 배송권한 박탈
+# ==========================================
+def toggle_delivery_ban(resident_id):
+    if not session.get('is_manager'): return "권한 없음"
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 현재 상태를 조회해서 반대로 뒤집음 (Toggle)
+    cur.execute("UPDATE Residents SET is_delivery_banned = NOT is_delivery_banned WHERE resident_id = %s", (resident_id,))
+    conn.commit()
+    
+    flash("✅ 배송 권한 상태가 변경되었습니다.", "success")
     return redirect(url_for('index', tab='admin'))
 # ==========================================
 # [매니저 액션] 분쟁판결

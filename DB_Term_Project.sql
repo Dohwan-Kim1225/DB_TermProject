@@ -1,5 +1,5 @@
 -- ========================================================
--- [Project] 아파트 물품 공유 라이브러리 DB 구축 (Final Version)
+-- [Project] 아파트 물품 공유 라이브러리 DB 구축 (Final Complete Version)
 -- ========================================================
 
 -- 1. [초기화] 기존 세션 종료 및 DB/Role 전체 삭제 (Reset)
@@ -52,7 +52,8 @@ CREATE TABLE Residents (
     points INTEGER DEFAULT 1000 CHECK (points >= 0),
     status VARCHAR(20) DEFAULT 'pending' 
         CHECK (status IN ('pending', 'approved', 'rejected')),
-    is_manager BOOLEAN DEFAULT FALSE
+    is_manager BOOLEAN DEFAULT FALSE,
+    is_delivery_banned BOOLEAN DEFAULT FALSE -- [New] 배송 알바 활동 정지 여부
 );
 
 -- (2) 물품 테이블 (Items)
@@ -116,9 +117,9 @@ CREATE TABLE Disputes (
 );
 
 -- 5. [뷰 생성] 매니저 및 일반 사용자용 정보 조회 뷰
--- 비밀번호 등 민감 정보를 제외한 안전한 뷰입니다.
+-- 비밀번호 등 민감 정보를 제외하고, 배송 정지 여부(is_delivery_banned)를 포함한 뷰입니다.
 CREATE OR REPLACE VIEW View_Manager_Residents AS
-SELECT resident_id, user_id, name, phone_number, building, unit, points, status, is_manager
+SELECT resident_id, user_id, name, phone_number, building, unit, points, status, is_manager, is_delivery_banned
 FROM Residents;
 
 -- 6. [권한 부여] Security & Permissions (RBAC)
@@ -151,7 +152,7 @@ GRANT UPDATE (points) ON Residents TO db_delivery_partner; -- 배송비 수취
 GRANT SELECT ON Residents TO db_owner, db_borrower, db_delivery_partner;
 -- 시퀀스 사용 (INSERT 시 필요)
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO db_owner, db_borrower, db_delivery_partner;
--- [Fix] 뷰 조회 권한 (InsufficientPrivilege 해결)
+-- 뷰 조회 권한 (앱 로직 수행용)
 GRANT SELECT ON View_Manager_Residents TO db_owner, db_borrower, db_delivery_partner;
 
 -- [C] 역할 상속 (Role Inheritance)
@@ -167,6 +168,8 @@ GRANT DELETE ON Items, Rentals TO db_manager;
 REVOKE DELETE ON Residents, Disputes FROM db_manager;
 REVOKE SELECT ON Residents FROM db_manager; -- ★ 핵심 보안 설정
 GRANT SELECT ON View_Manager_Residents TO db_manager; 
-GRANT SELECT (resident_id) ON Residents TO db_manager; 
-GRANT UPDATE (status) ON Residents TO db_manager;
+
+-- 매니저 업무 수행을 위한 특정 컬럼 권한 (승인, 배송정지 등)
+GRANT SELECT (resident_id, is_delivery_banned) ON Residents TO db_manager; 
+GRANT UPDATE (status, is_delivery_banned) ON Residents TO db_manager;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO db_manager;
