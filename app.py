@@ -74,6 +74,14 @@ def index():
         SET status = 'overdue' 
         WHERE status = 'rented' AND end_date < CURRENT_DATE
     """)
+
+    # [추가] 0-2. 물품 공유 만료 처리 (Items)
+    # 조건: 'available' 상태이면서, 만료일(expiration_date)이 오늘보다 이전인 경우 -> 'expired'
+    cur.execute("""
+        UPDATE Items SET status = 'expired' 
+        WHERE status = 'available' AND expiration_date < CURRENT_DATE
+    """)
+
     conn.commit()
 
     # ======================================================
@@ -121,8 +129,14 @@ def index():
     dispute_history = [] # [신규] 분쟁 히스토리용 리스트
 
     # [수정됨] is_verified 대신 status가 'approved'인지 확인
-    if session.get('status') == 'approved': 
-        cur.execute("SELECT * FROM Items WHERE owner_id = %s", (session['resident_id'],))
+    if session.get('status') == 'approved':
+        # [수정] 내가 등록한 물건 조회 (철회된 물건은 제외)
+        cur.execute("""
+            SELECT * FROM Items 
+            WHERE owner_id = %s 
+              AND status != 'withdrawn'  -- [★추가] 철회된 건은 리스트에서 숨김
+            ORDER BY item_id DESC
+        """, (session['resident_id'],))
         my_items = cur.fetchall()
         
         cur.execute("""
@@ -665,8 +679,43 @@ def reject_rental(rental_id):
     conn.close()
     flash("요청을 거절했습니다.", "warning")
     return redirect(url_for('index', tab='owner'))
-
-
+# ==========================================
+# 물품등록 철회
+# ==========================================
+@app.route('/withdraw_item/<int:item_id>')
+def withdraw_item(item_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 1. 본인 확인 및 상태 확인
+        cur.execute("SELECT owner_id, status FROM Items WHERE item_id = %s", (item_id,))
+        item = cur.fetchone()
+        
+        if not item: return "물품 없음"
+        owner_id, status = item
+        
+        if owner_id != session['resident_id']:
+            flash("권한이 없습니다.", "danger")
+            return redirect(url_for('index', tab='owner'))
+            
+        # 2. 철회 처리 (available 일 때만 가능)
+        if status == 'available':
+            cur.execute("UPDATE Items SET status = 'withdrawn' WHERE item_id = %s", (item_id,))
+            conn.commit()
+            flash("✅ 물품 등록이 철회되었습니다. 더 이상 목록에 노출되지 않습니다.", "success")
+        else:
+            flash(f"❌ 현재 '{status}' 상태이므로 철회할 수 없습니다.", "warning")
+            
+    except Exception as e:
+        conn.rollback()
+        flash(f"오류: {e}", "danger")
+    finally:
+        cur.close()
+        conn.close()
+        
+    return redirect(url_for('index', tab='owner'))
 
 # ========================================== 
 # 5. 배송 및 관리자 기능

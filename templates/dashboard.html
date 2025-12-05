@@ -190,20 +190,32 @@
 
         <div class="row mt-5">
             <div class="col-md-6">
-                <h5>📦 내가 등록한 물건 현황</h5>
-                <ul class="list-group">
-                    {% for my in my_items %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <span>
-                            <strong>{{ my[2] }}</strong> 
-                            {% if my[7] == 'disputed' %} <span class="badge bg-danger">잠김(분쟁)</span>
-                            {% elif my[7] == 'rented' %} <span class="badge bg-success">대여중</span>
-                            {% else %} <span class="badge bg-secondary">대여가능</span> {% endif %}
-                        </span>
-                        <span class="small text-muted">{{ my[3] }}</span>
-                    </li>
-                    {% endfor %}
-                </ul>
+                <h5 class="mt-4">📦 내가 등록한 물건 현황</h5>
+        <ul class="list-group mb-4">
+            {% for my in my_items %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ my[2] }}</strong> <span class="small text-muted">({{ my[3] }} P)</span>
+                    <br>
+                    {% if my[7] == 'available' %} <span class="badge bg-primary">대여 가능</span>
+                    {% elif my[7] == 'rented' %} <span class="badge bg-success">대여 중</span>
+                    {% elif my[7] == 'disputed' %} <span class="badge bg-danger">분쟁 중(잠금)</span>
+                    {% elif my[7] == 'withdrawn' %} <span class="badge bg-secondary">철회됨</span>
+                    {% elif my[7] == 'expired' %} <span class="badge bg-dark">만료됨</span>
+                    {% else %} <span class="badge bg-light text-dark border">{{ my[7] }}</span> {% endif %}
+                </div>
+                
+                <div>
+                    {% if my[7] == 'available' %}
+                        <a href="/withdraw_item/{{ my[0] }}" class="btn btn-sm btn-outline-secondary" 
+                           onclick="return confirm('정말 이 물품의 공유를 중단(철회)하시겠습니까?');">
+                            등록 철회
+                        </a>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
             </div>
             <div class="col-md-6">
                 <div class="card bg-light border-0 h-100">
