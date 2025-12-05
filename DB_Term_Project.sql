@@ -56,7 +56,7 @@ CREATE TABLE Residents (
 );
 
 -- (2) 물품 테이블 (Items)
--- [Update] 분쟁 발생 시 목록에서 잠그기 위해 'disputed' 상태 추가
+-- [Update] 상태값 추가: disputed(분쟁), withdrawn(철회), expired(만료)
 CREATE TABLE Items (
     item_id SERIAL PRIMARY KEY,
     owner_id INTEGER NOT NULL,
@@ -66,12 +66,12 @@ CREATE TABLE Items (
     rent_fee INTEGER DEFAULT 0 CHECK (rent_fee >= 0),
     expiration_date DATE DEFAULT '9999-12-31',
     status VARCHAR(20) DEFAULT 'available' 
-        CHECK (status IN ('available', 'rented', 'pending', 'under_repair', 'disputed')),
+        CHECK (status IN ('available', 'rented', 'pending', 'under_repair', 'disputed', 'withdrawn', 'expired')),
     CONSTRAINT fk_owner FOREIGN KEY (owner_id) REFERENCES Residents(resident_id) ON DELETE CASCADE
 );
 
 -- (3) 대여 테이블 (Rentals)
--- [Update] 배송 및 반납 프로세스를 위한 상세 상태값(waiting_driver, arrived 등) 적용
+-- [Update] 배송 및 반납 프로세스를 위한 상세 상태값 적용
 CREATE TABLE Rentals (
     rental_id SERIAL PRIMARY KEY,
     item_id INTEGER NOT NULL,
@@ -133,13 +133,13 @@ GRANT USAGE ON SCHEMA public TO db_manager, db_resident, db_owner, db_borrower, 
 GRANT SELECT, INSERT, UPDATE, DELETE ON Items TO db_owner; 
 GRANT SELECT, UPDATE ON Rentals TO db_owner;
 GRANT UPDATE (points) ON Residents TO db_owner; -- 수익 수취
-GRANT SELECT ON Disputes TO db_owner; -- [Fix] 분쟁 내역 조회 추가
+GRANT SELECT ON Disputes TO db_owner; -- 분쟁 내역 조회
 
 -- 🙋 2. 대여자 (Borrower)
 GRANT SELECT ON Items TO db_borrower;
 GRANT SELECT, INSERT, UPDATE ON Rentals TO db_borrower;
 GRANT UPDATE (points) ON Residents TO db_borrower; -- 결제
-GRANT SELECT, INSERT ON Disputes TO db_borrower; -- [Fix] 분쟁 신고 및 조회
+GRANT SELECT, INSERT ON Disputes TO db_borrower; -- 분쟁 신고 및 조회
 
 -- 🚚 3. 배송 파트너 (Delivery Partner)
 GRANT SELECT, UPDATE ON Rentals TO db_delivery_partner;
