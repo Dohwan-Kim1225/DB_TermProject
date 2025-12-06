@@ -28,6 +28,16 @@ def get_db_connection():
         # 일반 유저나 비로그인 상태면 주민 계정으로 접속
         return psycopg2.connect(**RESIDENT_CONF)
 
+def get_system_manager_id():
+    """시스템 금고 역할을 할 매니저(관리자)의 ID를 조회"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # 가장 먼저 가입한(ID가 가장 작은) 매니저를 시스템 계정으로 간주
+    cur.execute("SELECT resident_id FROM Residents WHERE is_manager = TRUE ORDER BY resident_id ASC LIMIT 1")
+    manager = cur.fetchone()
+    cur.close()
+    conn.close()
+    return manager[0] if manager else None
 # app.py
 
 def refresh_user_session(user_id):
@@ -596,6 +606,8 @@ def rent_item(item_id):
 
 # [핵심] 대여 승인 (트랜잭션)
 # app.py
+# app.py
+
 @app.route('/approve_rental/<int:rental_id>')
 def approve_rental(rental_id):
     if session.get('status') != 'approved': return "권한 없음"
@@ -620,12 +632,33 @@ def approve_rental(rental_id):
         if owner != session['resident_id']:
             return "권한 없음"
 
-        days = (e_date - s_date).days + 1
-        total = (days * fee_per_day) + del_fee
+        # [수정] 배송비를 보관할 시스템 매니저(금고) ID 조회
+        cur.execute("SELECT resident_id FROM Residents WHERE is_manager = TRUE ORDER BY resident_id ASC LIMIT 1")
+        manager_data = cur.fetchone()
+        
+        if not manager_data:
+            flash("시스템 관리자가 없어 결제를 진행할 수 없습니다.", "danger")
+            return redirect(url_for('index', tab='owner'))
+        
+        manager_id = manager_data[0]
 
-        # 2. 포인트 정산 (트랜잭션)
-        cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (total, borrower))
-        cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (total, owner))
+        # [수정] 비용 계산 분리
+        days = (e_date - s_date).days + 1
+        rent_total = days * fee_per_day  # 순수 대여료
+        delivery_total = del_fee         # 배송비
+        total_cost = rent_total + delivery_total # 대여자가 낼 총액
+
+        # 2. 포인트 정산 (트랜잭션 분리: 대여자 -> 소유자 & 매니저)
+        # (A) 대여자: 총액 차감
+        cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (total_cost, borrower))
+        
+        # (B) 소유자: 대여료만 입금
+        if rent_total > 0:
+            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (rent_total, owner))
+            
+        # (C) 매니저(플랫폼): 배송비 입금 (에스크로)
+        if delivery_total > 0:
+            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (delivery_total, manager_id))
         
         # 3. 해당 대여 건 승인 처리
         cur.execute("UPDATE Rentals SET status = 'approved' WHERE rental_id = %s", (rental_id,))
@@ -633,17 +666,14 @@ def approve_rental(rental_id):
         # 4. 물품 상태 변경 (대여중으로 변경하여 목록에서 숨김)
         cur.execute("UPDATE Items SET status = 'rented' WHERE item_id = %s", (item_id,))
         
-        # ==========================================================
-        # [신규 기능] 동시 요청 자동 거절 (Auto-Reject)
-        # 해당 물품(item_id)에 대한 다른 요청들(requested)을 모두 거절(rejected) 처리
-        # ==========================================================
+        # 5. 동시 요청 자동 거절 (Auto-Reject)
         cur.execute("""
             UPDATE Rentals 
             SET status = 'rejected' 
             WHERE item_id = %s AND status = 'requested' AND rental_id != %s
         """, (item_id, rental_id))
 
-        # 5. 배송 상태 설정
+        # 6. 배송 상태 설정
         if del_fee > 0:
             cur.execute("UPDATE Rentals SET delivery_status = 'waiting_driver' WHERE rental_id = %s", (rental_id,))
         else:
@@ -657,7 +687,7 @@ def approve_rental(rental_id):
         conn.commit()
         refresh_user_session(session['resident_id']) # 세션 동기화
         
-        flash(f"✅ 승인 완료! 나머지 대기 요청들은 자동으로 거절되었습니다.", "success")
+        flash(f"✅ 승인 완료! 대여료 {rent_total}P가 입금되었습니다. (배송비는 플랫폼 보관)", "success")
 
     except Exception as e:
         conn.rollback()
@@ -838,43 +868,66 @@ def cancel_delivery(rental_id):
 # ==========================================
 # 배송기사 배송 완료
 # ==========================================
+# app.py
+
 @app.route('/complete_delivery/<int:rental_id>')
 def complete_delivery(rental_id):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 상태 확인
+        # 1. 현재 대여 상태 확인
         cur.execute("SELECT status FROM Rentals WHERE rental_id = %s", (rental_id,))
-        status = cur.fetchone()[0]
+        result = cur.fetchone()
+        
+        if not result:
+            return "정보 없음"
+        
+        status = result[0]
 
-        # [수정] 반납 과정(rented/overdue)인 경우 -> 'arrived' 상태로 변경 (소유자 확인 대기)
+        # ---------------------------------------------------------
+        # Case A: 반납하러 가는 배송 (rented/overdue)
+        # -> 기사는 '도착'만 찍고, 소유자의 최종 확인을 기다려야 함.
+        # ---------------------------------------------------------
         if status in ['rented', 'overdue']:
             cur.execute("UPDATE Rentals SET delivery_status = 'arrived' WHERE rental_id = %s", (rental_id,))
             flash("🚚 목적지에 도착했습니다! 소유자의 확인을 기다리세요.", "info")
         
-        # [기존] 대여 과정(approved)인 경우 -> 'rented' 상태로 변경 (대여 시작)
+        # ---------------------------------------------------------
+        # Case B: 빌리러 가는 배송 (approved)
+        # -> 기사가 '완료'를 찍으면 즉시 정산되고 대여가 시작됨.
+        # ---------------------------------------------------------
         else:
-            # ... (기존 포인트 지급 로직 유지) ...
-            cur.execute("SELECT delivery_fee, borrower_id, i.owner_id FROM Rentals r JOIN Items i ON r.item_id = i.item_id WHERE rental_id = %s", (rental_id,))
-            fee, borrower, owner = cur.fetchone()
+            # 배송비 조회
+            cur.execute("SELECT delivery_fee FROM Rentals WHERE rental_id = %s", (rental_id,))
+            fee = cur.fetchone()[0]
             
+            # [수정] 배송비 지급 주체 변경: 소유자(Owner) -> 매니저(Manager)
+            manager_id = get_system_manager_id() # 매니저 ID 조회 함수 사용
+
             if fee > 0:
-                cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (fee, owner))
-                cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (fee, session['resident_id']))
-                flash(f"✅ 배송 완료! 수고비 {fee} 포인트를 받았습니다.", "success")
+                if manager_id:
+                    # 매니저(플랫폼) 지갑에서 -> 배송기사(나)에게 지급
+                    cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (fee, manager_id))
+                    cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (fee, session['resident_id']))
+                    flash(f"✅ 배송 완료! 플랫폼(매니저)으로부터 수고비 {fee} 포인트를 받았습니다.", "success")
+                else:
+                    flash("시스템 관리자 계정 오류로 배송비 정산에 실패했습니다.", "danger")
             
+            # 상태 변경: 배송 완료 처리 및 대여 시작(rented)
             cur.execute("UPDATE Rentals SET delivery_status = 'completed', status = 'rented' WHERE rental_id = %s", (rental_id,))
         
         conn.commit()
 
-        # [수정] 내(배송기사) 포인트가 변했으므로 동기화
+        # [중요] 내(배송기사) 포인트가 변했을 수 있으므로 세션 동기화
         refresh_user_session(session['resident_id'])
+        
     except Exception as e:
         conn.rollback()
         flash(f"오류: {e}", "danger")
     finally:
         cur.close()
         conn.close()
+        
     return redirect(url_for('index', tab='delivery'))
 # app.py 에 추가
 # ==========================================
