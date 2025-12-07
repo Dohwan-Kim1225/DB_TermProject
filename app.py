@@ -473,38 +473,47 @@ def signup():
             conn.close()
     return render_template('signup.html')
 
+# app.py
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        uid = request.form['user_id']
-        pw = request.form['password']
+        user_id = request.form['user_id']
+        password = request.form['password']
         
-        # [중요] 로그인 검증은 일반 권한(RESIDENT_CONF) 사용
-        conn = psycopg2.connect(**RESIDENT_CONF)
+        conn = get_db_connection()
         cur = conn.cursor()
-        
-        # [변경] is_verified 대신 status 컬럼 조회
-        cur.execute("""
-            SELECT resident_id, password, name, points, status, is_manager 
-            FROM Residents WHERE user_id = %s
-        """, (uid,))
+        cur.execute("SELECT * FROM Residents WHERE user_id = %s", (user_id,))
         user = cur.fetchone()
         cur.close()
         conn.close()
-
-        if user and check_password_hash(user[1], pw):
+        
+        if user and check_password_hash(user[2], password):
+            # user 테이블 인덱스: 0:id, 1:uid, 2:pw, ..., 8:status
+            status = user[8] 
+            
+            # [핵심 추가] 상태가 'approved'가 아니면 로그인 차단
+            if status == 'pending':
+                flash('⏳ 가입 승인 대기 중인 계정입니다. 관리자 승인 후 이용 가능합니다.', 'warning')
+                return redirect(url_for('login'))
+            
+            elif status == 'rejected':
+                flash('🚫 가입이 거절되거나 정지된 계정입니다. 관리자에게 문의하세요.', 'danger')
+                return redirect(url_for('login'))
+            
+            # 승인된 경우에만 세션 생성
+            session['user_id'] = user[1]
             session['resident_id'] = user[0]
-            session['user_id'] = uid
-            session['name'] = user[2]
-            session['points'] = user[3]
-            session['status'] = user[4]     # [NEW] status 저장
-            session['is_manager'] = user[5]
+            session['name'] = user[3]
+            session['is_manager'] = user[9]
+            session['points'] = user[7]
+            session['status'] = user[8] # approved
+            
             return redirect(url_for('index'))
         else:
-            flash("❌ 아이디 또는 비밀번호가 틀렸습니다.", "danger")
-
+            flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'danger')
+            
     return render_template('login.html')
-
 @app.route('/logout')
 def logout():
     session.clear()

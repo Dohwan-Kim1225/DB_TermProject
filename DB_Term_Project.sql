@@ -161,6 +161,9 @@ GRANT db_owner TO db_resident;
 GRANT db_borrower TO db_resident;
 GRANT db_delivery_partner TO db_resident;
 
+-- 일반 사용자 계정(db_resident)이 회원가입(INSERT)을 할 수 있도록 권한 부여
+GRANT INSERT ON Residents TO db_resident;
+
 -- [D] 매니저 (db_manager) 권한
 -- 개인정보 보호(Residents 조회 불가) 정책 유지
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO db_manager;
