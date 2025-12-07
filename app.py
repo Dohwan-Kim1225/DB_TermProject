@@ -70,10 +70,23 @@ def refresh_user_session(user_id):
 def index():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
     # [수정] URL에서 'tab' 파라미터를 가져옴 (기본값은 'home')
     active_tab = request.args.get('tab', 'home')
+    
     conn = get_db_connection()
     cur = conn.cursor()
+
+    # ================================================================
+    # [★핵심 추가★] 0-1. 접속 시 포인트 최신화 (DB -> Session 동기화)
+    # 세션에 저장된 포인트 대신 DB의 최신 포인트를 가져와 갱신합니다.
+    # ================================================================
+    cur.execute("SELECT points FROM Residents WHERE resident_id = %s", (session['resident_id'],))
+    result = cur.fetchone()
+    
+    if result:
+        session['points'] = result[0] 
+    # ================================================================
 
     # ======================================================
     # [추가] 0. 접속 시 자동 연체 처리 (Lazy Update)
@@ -133,10 +146,10 @@ def index():
     # 2. [소유자]
     my_items = []
     incoming_requests = []
-    arrived_returns = []  # [추가 1] 변수 초기화
+    arrived_returns = [] 
     owner_history = []
-    my_disputes = []  # [추가] 분쟁 목록 초기화
-    dispute_history = [] # [신규] 분쟁 히스토리용 리스트
+    my_disputes = [] 
+    dispute_history = [] 
 
     # [수정됨] is_verified 대신 status가 'approved'인지 확인
     if session.get('status') == 'approved':
@@ -156,13 +169,10 @@ def index():
         """, (session['resident_id'],))
         incoming_requests = cur.fetchall()
 
-        # ==========================================================
-        # [추가 2] 여기에 반납 도착 확인 쿼리를 넣으세요!
-        # ==========================================================
-        # (A) 반납 확인 대기 쿼리 (다시 복사해서 덮어쓰세요)
+        # (A) 반납 확인 대기 쿼리 
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, 
-                   p.name, p.phone_number 
+                    p.name, p.phone_number 
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
@@ -177,12 +187,12 @@ def index():
         # 조건: 상태가 'returned'(반납확정) 또는 'disputed'(분쟁중) 인 것만 조회
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
-                   (r.end_date - r.start_date + 1) * i.rent_fee as total_income
+                    (r.end_date - r.start_date + 1) * i.rent_fee as total_income
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON r.borrower_id = u.resident_id
             WHERE i.owner_id = %s 
-              AND r.status IN ('returned', 'disputed')  -- ['completed' 삭제함]
+              AND r.status IN ('returned', 'disputed') 
             ORDER BY r.rental_id DESC
         """, (session['resident_id'],))
         owner_history = cur.fetchall()
@@ -199,10 +209,11 @@ def index():
             ORDER BY d.dispute_id DESC
         """, (session['resident_id'],))
         my_disputes = cur.fetchall()
+        
         # (C) [신규] 전체 분쟁 기록 (과거 이력 포함)
         cur.execute("""
             SELECT d.dispute_id, i.name, u.name, d.reason, d.resolution, d.status, 
-                   d.compensation_amount, r.rental_id
+                    d.compensation_amount, r.rental_id
             FROM Disputes d
             JOIN Rentals r ON d.rental_id = r.rental_id
             JOIN Items i ON r.item_id = i.item_id
@@ -217,15 +228,15 @@ def index():
     # 3. [대여자] 탭 데이터 조회 (Active vs History 분리)
     active_rentals = []
     borrower_history = []
-    borrower_disputes = []  # [추가] 대여자 분쟁 기록
+    borrower_disputes = [] 
     
     if session.get('status') == 'approved':
         # (A) 진행 중인 대여 (Active)
         # 조건: 요청중, 승인됨, 대여중, 연체됨, 분쟁중
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
-                   r.delivery_status, 
-                   p.name, p.phone_number
+                    r.delivery_status, 
+                    p.name, p.phone_number
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON i.owner_id = u.resident_id 
@@ -240,7 +251,7 @@ def index():
         # 조건: 거절됨(rejected), 반납완료(returned)
         cur.execute("""
             SELECT r.rental_id, i.name, u.name, r.start_date, r.end_date, r.status, 
-                   r.delivery_status
+                    r.delivery_status
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u ON i.owner_id = u.resident_id 
@@ -253,11 +264,11 @@ def index():
         # (C) [신규] 내 분쟁 기록 조회 (내가 대여자인 건)
         cur.execute("""
             SELECT d.dispute_id, i.name, u.name, d.reason, d.resolution, d.status, 
-                   d.compensation_amount
+                    d.compensation_amount
             FROM Disputes d
             JOIN Rentals r ON d.rental_id = r.rental_id
             JOIN Items i ON r.item_id = i.item_id
-            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id  -- u: 소유자(상대방)
+            JOIN View_Manager_Residents u ON i.owner_id = u.resident_id 
             WHERE r.borrower_id = %s
             ORDER BY d.dispute_id DESC
         """, (session['resident_id'],))
@@ -266,20 +277,20 @@ def index():
     # [중요] render_template에 변수명 변경/추가
     # my_rentals -> active_rentals 로 변경하고, borrower_history 추가
 
-# 4. [배송] 탭 로직
+    # 4. [배송] 탭 로직
     delivery_market = []
     my_deliveries = []
-    delivery_history = [] # [추가] 배송 이력 리스트 초기화
+    delivery_history = [] 
     if session.get('status') == 'approved':
         # [수정] WHERE 절 마지막에 AND r.borrower_id != %s 추가
         # 의미: 내가 빌린 건(Borrower가 나인 건)은 배송 시장 리스트에서 제외
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, 
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END,
-                   r.status
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END,
+                    r.status
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id 
@@ -299,14 +310,14 @@ def index():
         # [배송] 내 배송 현황 (기사 입장에서 보는 뷰)
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, 
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END,
-                   r.delivery_status, r.status,
-                   -- [추가] 출발지/목적지 전화번호 로직
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u2.phone_number ELSE u1.phone_number END as start_phone,
-                   CASE WHEN r.status IN ('rented', 'overdue') THEN u1.phone_number ELSE u2.phone_number END as end_phone
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.building ELSE u1.building END,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.unit ELSE u1.unit END,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.building ELSE u2.building END,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.unit ELSE u2.unit END,
+                    r.delivery_status, r.status,
+                    -- [추가] 출발지/목적지 전화번호 로직
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u2.phone_number ELSE u1.phone_number END as start_phone,
+                    CASE WHEN r.status IN ('rented', 'overdue') THEN u1.phone_number ELSE u2.phone_number END as end_phone
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id 
@@ -320,11 +331,11 @@ def index():
         # 경로 로직: 반납 완료된 건(returned)은 [대여자->소유자], 대여 중인 건(rented)은 [소유자->대여자]
         cur.execute("""
             SELECT r.rental_id, i.name, r.delivery_fee, 
-                   CASE WHEN r.status = 'returned' THEN u2.building ELSE u1.building END as start_b,
-                   CASE WHEN r.status = 'returned' THEN u2.unit ELSE u1.unit END as start_u,
-                   CASE WHEN r.status = 'returned' THEN u1.building ELSE u2.building END as end_b,
-                   CASE WHEN r.status = 'returned' THEN u1.unit ELSE u2.unit END as end_u,
-                   r.status
+                    CASE WHEN r.status = 'returned' THEN u2.building ELSE u1.building END as start_b,
+                    CASE WHEN r.status = 'returned' THEN u2.unit ELSE u1.unit END as start_u,
+                    CASE WHEN r.status = 'returned' THEN u1.building ELSE u2.building END as end_b,
+                    CASE WHEN r.status = 'returned' THEN u1.unit ELSE u2.unit END as end_u,
+                    r.status
             FROM Rentals r 
             JOIN Items i ON r.item_id = i.item_id 
             JOIN View_Manager_Residents u1 ON i.owner_id = u1.resident_id 
@@ -340,7 +351,7 @@ def index():
     # ---------------------------------------
     pending_residents = []
     open_disputes = []
-    history_residents = [] # 처리된(승인/거절) 주민 목록
+    history_residents = [] 
     
     # 검색어(q)와 필터(f) 가져오기 (URL 파라미터)
     search_query = request.args.get('q', '')
@@ -355,19 +366,12 @@ def index():
         """)
         pending_residents = cur.fetchall()
 
-        # (B) [수정] 분쟁 목록 (ID 위주 조회)
-        # 인덱스(Index) 순서:
-        # 0: dispute_id
-        # 1: rental_id
-        # 2: reason (사유)
-        # 3: u1.user_id (신고자 ID)  <-- 변경됨
-        # 4: u2.user_id (피신고자 ID) <-- 변경됨
-        # 5: i.name (물품명)
+        # (B) 분쟁 목록 (ID 위주 조회)
         cur.execute("""
             SELECT d.dispute_id, r.rental_id, d.reason, 
-                   u1.user_id, 
-                   u2.user_id, 
-                   i.name
+                    u1.user_id, 
+                    u2.user_id, 
+                    i.name
             FROM Disputes d 
             JOIN Rentals r ON d.rental_id = r.rental_id 
             JOIN Items i ON r.item_id = i.item_id 
@@ -377,14 +381,6 @@ def index():
         """)
         open_disputes = cur.fetchall()
         
-        # (B) 분쟁 목록
-        cur.execute("""
-            SELECT d.dispute_id, r.rental_id, d.reason, u1.name, u2.name
-            FROM Disputes d JOIN Rentals r ON d.rental_id = r.rental_id JOIN View_Manager_Residents u1 ON r.borrower_id = u1.resident_id JOIN Items i ON r.item_id = i.item_id JOIN View_Manager_Residents u2 ON i.owner_id = u2.resident_id
-            WHERE d.status = 'open'
-        """)
-        open_disputes = cur.fetchall()
-
         # (C) [신규] 주민 관리 이력 (History) - 검색 및 필터링 적용
         # 기본 쿼리: 이미 처리된(승인/거절) 주민만 조회
         query = """
@@ -414,27 +410,27 @@ def index():
     conn.close()
 
     return render_template('dashboard.html', 
-                           active_tab=active_tab,  # [추가] HTML로 탭 정보 전달
-                           items=items,
-                           my_items=my_items,
-                           incoming_requests=incoming_requests,
-                           arrived_returns=arrived_returns,
-                           owner_history=owner_history,  # <--- [★중요★] 이 줄이 꼭 있어야 이력이 뜹니다!
-                           my_disputes=my_disputes,
-                           dispute_history=dispute_history,
-                           active_rentals=active_rentals,    # [변경] my_rentals 대신 사용
-                           borrower_history=borrower_history, # [추가]
-                           borrower_disputes=borrower_disputes,
-                           delivery_market=delivery_market,
-                           my_deliveries=my_deliveries,
-                           delivery_history=delivery_history, # [추가]
-                           pending_residents=pending_residents,
-                           open_disputes=open_disputes,
-                           history_residents=history_residents,
-                           search_query=search_query,
-                           filter_status=filter_status,
-                           session=session,
-                           date_today=date.today())
+                            active_tab=active_tab, 
+                            items=items,
+                            my_items=my_items,
+                            incoming_requests=incoming_requests,
+                            arrived_returns=arrived_returns,
+                            owner_history=owner_history, 
+                            my_disputes=my_disputes,
+                            dispute_history=dispute_history,
+                            active_rentals=active_rentals, 
+                            borrower_history=borrower_history, 
+                            borrower_disputes=borrower_disputes,
+                            delivery_market=delivery_market,
+                            my_deliveries=my_deliveries,
+                            delivery_history=delivery_history, 
+                            pending_residents=pending_residents,
+                            open_disputes=open_disputes,
+                            history_residents=history_residents,
+                            search_query=search_query,
+                            filter_status=filter_status,
+                            session=session,
+                            date_today=date.today())
 
 # ==========================================
 # 3. 인증 (회원가입/로그인/로그아웃)
@@ -933,6 +929,8 @@ def complete_delivery(rental_id):
 # ==========================================
 # 반납 배송
 # ==========================================
+# app.py
+
 @app.route('/request_return/<int:rental_id>', methods=['POST'])
 def request_return(rental_id):
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -967,14 +965,21 @@ def request_return(rental_id):
             if current_points < fee:
                 flash("❌ 잔액이 부족하여 배송 반납을 신청할 수 없습니다.", "danger")
                 return redirect(url_for('index', tab='borrower'))
-                
-            # Borrower 차감 -> Owner에게 임시 지급 (배송 완료 시 기사에게 이동)
+            
+            # [수정 1] 시스템 매니저(금고) ID 조회
+            # (이 함수가 app.py 상단에 정의되어 있어야 합니다. 없다면 아래 주석 참고)
+            manager_id = get_system_manager_id() 
+            
+            if not manager_id:
+                flash("시스템 오류: 관리자 계정이 없어 배송비를 처리할 수 없습니다.", "danger")
+                return redirect(url_for('index', tab='borrower'))
+
+            # [수정 2] Borrower 차감 -> Manager(시스템)에게 임시 지급
+            # 기존 owner_id를 manager_id로 변경했습니다.
             cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (fee, borrower_id))
-            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (fee, owner_id))
+            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (fee, manager_id))
 
         # 3. [핵심] 기존 배송 정보 덮어쓰기 (Return 모드로 전환)
-        # delivery_status를 초기화하여 새로운 운송 사이클 시작
-        
         new_delivery_status = 'waiting_driver' if option == 'delivery' else 'accepted'
         partner_id = None if option == 'delivery' else borrower_id # 직접 반납이면 본인이 파트너
 
@@ -988,12 +993,15 @@ def request_return(rental_id):
         """, (option, fee, partner_id, new_delivery_status, rental_id))
         
         conn.commit()
+        # [추가] 내 포인트가 변했을 수 있으므로 세션 동기화
+        refresh_user_session(session['resident_id'])
+        
         flash("↩️ 반납 신청이 접수되었습니다. 운송 절차를 진행해주세요.", "success")
         
     except Exception as e:
         conn.rollback()
         print(e)
-        flash("오류 발생", "danger")
+        flash(f"오류 발생: {e}", "danger")
     finally:
         cur.close()
         conn.close()
@@ -1002,85 +1010,72 @@ def request_return(rental_id):
 # ==========================================
 # 소유자 반납확인
 # ==========================================
-# app.py
-
 @app.route('/confirm_return/<int:rental_id>')
 def confirm_return(rental_id):
-    if 'user_id' not in session: return redirect(url_for('login'))
-
+    if session.get('status') != 'approved': return "권한 없음"
+    
     conn = get_db_connection()
     cur = conn.cursor()
+
     try:
-        # 1. 필요한 모든 정보 조회 (날짜, 요금, 당사자들)
+        # 1. 대여 정보 조회
         cur.execute("""
-            SELECT r.delivery_fee, r.delivery_partner_id, r.item_id, i.owner_id,
-                   r.start_date, r.end_date, r.borrower_id, i.rent_fee
-            FROM Rentals r 
-            JOIN Items i ON r.item_id = i.item_id 
+            SELECT r.item_id, r.borrower_id, i.owner_id, i.rent_fee, r.end_date, 
+                   r.delivery_partner_id, r.delivery_fee
+            FROM Rentals r JOIN Items i ON r.item_id = i.item_id 
             WHERE r.rental_id = %s
         """, (rental_id,))
         data = cur.fetchone()
         
         if not data: return "데이터 없음"
         
-        # 변수 할당
-        del_fee, partner_id, item_id, owner_id, start_date, original_end_date, borrower_id, rent_fee = data
+        item_id, borrower_id, owner_id, rent_fee, original_end_date, partner_id, del_fee = data
+        
+        # 권한 체크 (소유자 본인 확인)
+        if owner_id != session['resident_id']:
+            return "권한 없음"
 
-        # 권한 체크
-        if session['resident_id'] != owner_id:
-            flash("권한이 없습니다.", "danger")
-            return redirect(url_for('index'))
-
-        # ---------------------------------------------------------
-        # [신규 기능] 조기 반납 시 차액 환불 & 날짜 보정 로직
-        # ---------------------------------------------------------
         today = date.today()
-        
-        # 남은 기간 계산 (예: 5일 반납인데 3일에 옴 -> 2일치 환불)
-        # 단, 시작일보다 이전(미래 예약 취소 등)인 경우는 별도 처리가 필요하지만 
-        # 여기선 '대여 중'인 상태이므로 start_date <= today 라고 가정함.
-        remaining_days = (original_end_date - today).days
-        
         refund_msg = ""
-
-        # 남은 날짜가 하루 이상이면 환불 진행
+        
+        # ---------------------------------------------------------
+        # (A) 조기 반납 환불 (대여료는 소유자가 돌려줌)
+        # ---------------------------------------------------------
+        remaining_days = (original_end_date - today).days
         if remaining_days > 0:
             refund_amount = remaining_days * rent_fee
-            
-            # (1) 환불 트랜잭션 (소유자 -> 대여자)
             if refund_amount > 0:
                 cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (refund_amount, owner_id))
                 cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (refund_amount, borrower_id))
+                refund_msg = f" (⚡ 조기 반납 환불 {refund_amount}P 포함)"
             
-            # (2) 종료일 업데이트 (오늘로 수정)
+            # DB 종료일 업데이트
             cur.execute("UPDATE Rentals SET end_date = %s WHERE rental_id = %s", (today, rental_id))
-            
-            refund_msg = f" (⚡ 조기 반납으로 {remaining_days}일치 {refund_amount}P가 환불되었습니다!)"
 
         # ---------------------------------------------------------
-        # [기존 기능] 배송비 정산 (소유자 -> 배송기사)
+        # (B) [수정] 배송비 정산 (매니저 -> 기사)
         # ---------------------------------------------------------
-        if del_fee > 0 and partner_id:
-            cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (del_fee, owner_id))
-            cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (del_fee, partner_id))
+        if partner_id and del_fee > 0:
+            manager_id = get_system_manager_id() # 매니저 ID 조회
+            if manager_id:
+                # 매니저(보관중) -> 배송 기사 지급
+                cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (del_fee, manager_id))
+                cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (del_fee, partner_id))
 
-        # 3. 상태 업데이트 (최종 완료)
+        # ---------------------------------------------------------
+        # (C) 상태 업데이트 (정상 종료)
+        # ---------------------------------------------------------
         cur.execute("UPDATE Rentals SET status = 'returned', delivery_status = 'completed' WHERE rental_id = %s", (rental_id,))
-        
-        # 4. 물품 상태 복구
         cur.execute("UPDATE Items SET status = 'available' WHERE item_id = %s", (item_id,))
         
         conn.commit()
+        refresh_user_session(session['resident_id']) 
         
-        # 세션 동기화 (내 포인트가 빠져나갔을 수 있으므로)
-        refresh_user_session(session['resident_id'])
-        
-        flash(f"✅ 반납 확인 완료!{refund_msg}", "success")
-        
+        flash(f"✅ 반납 확정 완료!{refund_msg}", "success")
+
     except Exception as e:
         conn.rollback()
-        print("에러:", e)
-        flash(f"오류 발생: {e}", "danger")
+        flash(f"❌ 처리 실패: {e}", "danger")
     finally:
         cur.close()
         conn.close()
@@ -1090,44 +1085,50 @@ def confirm_return(rental_id):
 # ==========================================
 # 분쟁신고
 # ==========================================
+# app.py
+
 @app.route('/report_dispute/<int:rental_id>', methods=['POST'])
 def report_dispute(rental_id):
-    if 'user_id' not in session: return redirect(url_for('login'))
-    
-    reason = request.form['reason'] # 모달에서 입력한 사유
-    
+    reason = request.form['reason']
     conn = get_db_connection()
     cur = conn.cursor()
+    
     try:
-        # 1. 정보 조회
+        # 1. 대여 정보 조회
         cur.execute("""
-            SELECT r.item_id, i.owner_id 
-            FROM Rentals r JOIN Items i ON r.item_id = i.item_id 
-            WHERE r.rental_id = %s
+            SELECT item_id, delivery_partner_id, delivery_fee, delivery_status 
+            FROM Rentals WHERE rental_id = %s
         """, (rental_id,))
-        result = cur.fetchone()
+        data = cur.fetchone()
         
-        if not result: return "잘못된 요청"
-        item_id, owner_id = result
+        if not data: return "데이터 없음"
+        item_id, partner_id, del_fee, del_status = data
         
-        # 권한 체크
-        if owner_id != session['resident_id']:
-            flash("권한이 없습니다.", "danger")
-            return redirect(url_for('index'))
-
-        # 2. 상태 변경 (Lock)
-        # Rentals -> disputed, Items -> disputed
-        cur.execute("UPDATE Rentals SET status = 'disputed' WHERE rental_id = %s", (rental_id,))
-        cur.execute("UPDATE Items SET status = 'disputed' WHERE item_id = %s", (item_id,))
-        
-        # 3. 분쟁 테이블에 기록 (Disputes)
+        # 2. 분쟁 등록 및 상태 잠금 (Locking)
         cur.execute("""
-            INSERT INTO Disputes (rental_id, reason, status)
-            VALUES (%s, %s, 'open')
+            INSERT INTO Disputes (rental_id, manager_id, reason, status)
+            VALUES (%s, NULL, %s, 'open')
         """, (rental_id, reason))
         
+        cur.execute("UPDATE Rentals SET status = 'disputed' WHERE rental_id = %s", (rental_id,))
+        cur.execute("UPDATE Items SET status = 'disputed' WHERE item_id = %s", (item_id,))
+
+        # ---------------------------------------------------------
+        # (A) [추가] 분쟁 시 배송비 정산 (매니저 -> 기사)
+        # 조건: 기사가 있고, 배송비가 있으며, 이미 도착(arrived)한 경우
+        # ---------------------------------------------------------
+        if partner_id and del_fee > 0 and del_status == 'arrived':
+            manager_id = get_system_manager_id()
+            if manager_id:
+                # 매니저(보관중) -> 배송 기사 지급
+                cur.execute("UPDATE Residents SET points = points - %s WHERE resident_id = %s", (del_fee, manager_id))
+                cur.execute("UPDATE Residents SET points = points + %s WHERE resident_id = %s", (del_fee, partner_id))
+                
+                # 배송 상태는 완료(completed)로 변경 (기사는 업무 끝)
+                cur.execute("UPDATE Rentals SET delivery_status = 'completed' WHERE rental_id = %s", (rental_id,))
+
         conn.commit()
-        flash("🚨 분쟁 신고가 접수되었습니다. 관리자 판결 전까지 물품이 잠금 처리됩니다.", "warning")
+        flash("🚨 분쟁 신고 접수! 물품과 대여 상태가 동결됩니다. (배송 기사는 정산 완료)", "warning")
         
     except Exception as e:
         conn.rollback()

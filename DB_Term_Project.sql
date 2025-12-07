@@ -49,7 +49,7 @@ CREATE TABLE Residents (
     phone_number VARCHAR(20) UNIQUE NOT NULL,
     building VARCHAR(10) NOT NULL,
     unit VARCHAR(10) NOT NULL,
-    points INTEGER DEFAULT 1000 CHECK (points >= 0),
+    points INTEGER DEFAULT 10000 CHECK (points >= 0),
     status VARCHAR(20) DEFAULT 'pending' 
         CHECK (status IN ('pending', 'approved', 'rejected')),
     is_manager BOOLEAN DEFAULT FALSE,
@@ -173,3 +173,6 @@ GRANT SELECT ON View_Manager_Residents TO db_manager;
 GRANT SELECT (resident_id, is_delivery_banned) ON Residents TO db_manager; 
 GRANT UPDATE (status, is_delivery_banned) ON Residents TO db_manager;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO db_manager;
+-- 매니저(db_manager)에게 주민의 포인트(points)를 수정할 수 있는 권한 추가 부여
+GRANT UPDATE (points) ON Residents TO db_manager;
+GRANT SELECT (resident_id, points) ON Residents TO db_manager;
